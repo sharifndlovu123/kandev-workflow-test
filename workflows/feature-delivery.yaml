@@ -22,6 +22,12 @@ workflows:
         1. list_workflow_steps_kandev(workflow_id)  -> step names to ids
         2. move_task_kandev(task_id, workflow_id, workflow_step_id=<target id>,
            prompt="<short factual handoff, <= 2 sentences>")
+        3. STOP. The move_task_kandev call is the LAST action of your turn. Call
+           it exactly ONCE, then end your turn immediately. Do NOT call
+           move_task_kandev a second time. Do NOT keep working. Do NOT advance the
+           task past the step you just moved it to — a step that runs no agent
+           (e.g. "Human Review") is a DELIBERATE HUMAN GATE. Leave the task there
+           for the human. Moving a task through a human gate is a serious error.
 
       Never argue your case in the move `prompt`. A fresh-context reviewer must
       form its own judgment from the plan and the repository, not from your
@@ -178,6 +184,7 @@ workflows:
              - REJECTED and N < 3 -> move to "Draft". Handoff: "Rejected round N."
              - REJECTED and N >= 3 -> move to "Needs Human".
                Handoff: "Stalled round N: <one-line core disagreement>."
+             One move_task_kandev call, then end your turn.
 
       - name: Implement
         position: 4
@@ -301,6 +308,9 @@ workflows:
              - CHANGES REQUIRED and M < 3 -> move to "Implement".
                Handoff: "Code review changes, round M."
              - CHANGES REQUIRED and M >= 3 -> move to "Needs Human".
+             Then STOP immediately. "Human Review" runs no agent - it is Sharif's
+             gate. After your single move_task_kandev call, end your turn. Do NOT
+             move the task again. Do NOT proceed to Integrate.
 
       - name: Human Review
         position: 7
