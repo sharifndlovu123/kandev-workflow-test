@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "node --test src/"
+    "test": "node --test"
   }
 }
