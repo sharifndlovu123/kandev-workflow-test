@@ -228,12 +228,18 @@ workflows:
              git checkout -b docs/<slug>
              git add docs/specs/<slug>.md
              git commit -m "docs: <slug> design doc"
-          4. Push and open a PR (NOT draft, NOT auto-merged - the doc is the source
-             of truth for future work, so a human merges it deliberately):
+          4. Push and open a PR. Use `gh pr create` (NOT --draft):
              gh pr create --title "docs: <slug> design doc"
-               --body "<one-paragraph summary of the design + link to nothing else>"
-          5. Record the PR URL in the plan. Move the task to "Done".
-             Handoff: "Doc PR opened: <URL>." Then end your turn.
+               --body "<one-paragraph summary of the design>"
+             DO NOT run `gh pr merge`. DO NOT merge, approve, or close the PR. The
+             doc is the source of truth for all future work on this feature -
+             Sharif merges it deliberately after a final read. Merging it yourself
+             is a serious error.
+          5. Record the PR URL in the plan. Then do EXACTLY ONE thing: call
+             move_task_kandev once to move the task to "Done" with handoff
+             "Doc PR opened: <URL>". Then END YOUR TURN immediately. Do not move
+             the task again. Do not move it to "Needs Human". Do not do any
+             cleanup. "Done" is terminal - you are finished.
 
       - name: Done
         position: 6

@@ -358,8 +358,11 @@ workflows:
           4. MERGE: `gh pr merge <n> --squash --delete-branch`. If the repo requires
              a second human approval on the PR, stop here and record the PR URL in
              the plan instead.
-          5. HAND OFF: record the PR URL in the plan. Move the task to "Done".
-             Handoff: "Merged: <PR URL>."
+          5. HAND OFF: record the PR URL in the plan. Then do EXACTLY ONE thing:
+             call move_task_kandev once to move the task to "Done" (handoff
+             "Merged: <PR URL>"). Then END YOUR TURN. Do not move the task again,
+             do not move it to "Needs Human", do not do further cleanup. "Done"
+             is terminal.
 
       - name: Done
         position: 9
