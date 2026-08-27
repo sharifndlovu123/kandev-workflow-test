@@ -336,24 +336,36 @@ needs. `reset_agent_context` is added where §5 requires it.
 
 ## 11. Build & test plan
 
-1. **Author `architecture-review` stub skill**; install to `~/.claude/skills/` and
-   `~/.gemini/skills/`.
-2. **Create the 4 agent profiles** (UI walk-through or `create_agent_profile_kandev`),
-   matching §6 exactly.
-3. **Attach the test repo** to the default workspace; set Worktree as default executor.
-4. **Resolve §10 open questions** against the workflow editor.
-5. **Author the workflow YAML** per §9; `import_workflow_kandev`.
-6. **Structure dry-run:** create a trivial task ("add a `capitalize(str)` function
-   to `src/strings.js`"), move it to Draft, confirm Claude drafts a plan and it
-   saves via `create_task_plan_kandev`.
-7. **Reject-loop test:** feed a deliberately weak spec; confirm Gemini rejects it,
+1. ✅ **`architecture-review` stub skill** — authored, installed to `~/.claude/skills/`
+   and `~/.gemini/skills/`.
+2. ✅ **Agent profiles** — `claude-build` (sonnet / acceptEdits) and `gemini-review`
+   (gemini-3.1-pro-preview-customtools / default) created. `codex-review` deferred:
+   the `codex-acp` agent does not appear under Installed Agents until Codex CLI is
+   installed, so no profile can be created for it yet.
+3. ✅ **Repo attached** — `/home/sharif/Documents/kandev` added to the Default
+   Workspace; Kandev auto-detected the GitHub remote. **Worktree executor is
+   already the New-Task default** (Settings → Task Behavior page is unimplemented,
+   but the default is Worktree regardless). `default_branch` shows empty in the
+   repo record but the New-Task dialog resolves `main` correctly.
+4. ✅ **§10 resolved** (see above).
+5. ✅ **Workflow YAML** — `workflows/feature-delivery.yaml`, imported as workflow
+   `Feature Delivery`. Verified by re-export: all 11 steps, positions, events, and
+   prompts present; `claude-build` attached to steps 1/4/5/6/8, `gemini-review` to
+   step 3, Codex step 2 unattached (expected). Import matches profiles by
+   `{agent_name, model, mode}`; **omit `mode` in the YAML when the profile's stored
+   mode is null** (Gemini "Default" mode stores as null) or the match silently fails.
+6. ⏳ **Structure dry-run:** create a trivial task ("add a `capitalize(str)`
+   function to `src/strings.js`"), move it to Draft, confirm Claude drafts a plan
+   and it saves via `create_task_plan_kandev`, and that it can call
+   `move_task_kandev` to reach Review · Gemini.
+7. ⏳ **Reject-loop test:** feed a deliberately weak spec; confirm Gemini rejects,
    the rationale lands in the plan, and the task returns to Draft with an
    incremented `Revision round`.
-8. **Happy path:** run one task end-to-end through merge; confirm the worktree,
-   the PR, and the archive.
-9. **Codex enablement:** separate session, after the ChatGPT-plan / API-key
-   decision. Install `codex`, `npm i -g <codex acp adapter>` if the §2.2 failure
-   recurs, populate the `codex-review` profile, flip `[2]` on.
+8. ⏳ **Happy path:** one task end-to-end through merge; confirm worktree, PR, archive.
+9. ⏳ **Codex enablement:** separate session, after the ChatGPT-plan / API-key
+   decision. Install `codex`; `npm i -g <codex acp adapter>` if the §2.2 failure
+   recurs; create the `codex-review` profile; re-import the workflow (delete first —
+   import skips existing names) or add the profile to step 2 via the UI.
 
 ---
 
