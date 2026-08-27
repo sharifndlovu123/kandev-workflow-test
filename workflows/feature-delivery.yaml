@@ -140,7 +140,7 @@ workflows:
         cancel_triggers_turn_complete: false
         agent_profile:
           agent_name: Gemini
-          model: gemini-3.1-pro-preview-customtools
+          model: gemini-3.5-flash
         events:
           on_enter:
             - type: reset_agent_context
