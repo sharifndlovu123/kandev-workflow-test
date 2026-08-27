@@ -68,7 +68,7 @@ change the feature doc.
 | `[n]` | Step | Agent profile | `on_enter` automations | Kicks back to |
 |---|---|---|---|---|
 | `[0]` | Backlog | — | — | — |
-| `[1]` | Draft *(start)* | `claude-draft` (mode: plan) | `enable_plan_mode`, `auto_start_agent` | — (all rejections land here) |
+| `[1]` | Draft *(start)* | `claude-build` + step **Plan mode** ✓ | `auto_start_agent` (Plan mode via step checkbox) | — (all rejections land here) |
 | `[2]` | Review · Codex | `codex-review` *(disabled until Codex installed)* | `reset_agent_context`, `auto_start_agent` | `[1]` |
 | `[3]` | Review · Gemini | `gemini-review` | `reset_agent_context`, `auto_start_agent` | `[1]` |
 | `[4]` | Implement | `claude-build` | `reset_agent_context`, `auto_start_agent` | — (test/review failures land here) |
@@ -174,15 +174,23 @@ Kandev auto-creates bare profiles on first probe. Replace with purpose-built one
 The workflow YAML matches a profile by exact `{agent_name, model, mode}` triple; a
 mismatch silently drops the assignment on import.
 
-| Profile name | Agent (`agent_name`) | `model` | `mode` | Used by | Notes |
-|---|---|---|---|---|---|
-| `claude-draft` | Claude | `sonnet` | `plan` | `[1]` | Plan mode structurally blocks file writes during drafting. |
-| `claude-build` | Claude | `sonnet` | `default` | `[4]`, `[5]`, `[6]`, `[8]` | Full tool access. |
-| `gemini-review` | Gemini | `gemini-2.5-pro` (pinned, **not** `auto`) | `default` | `[3]` | Pinned model = reproducible reviews. |
-| `codex-review` | Codex | TBD | `default` | `[2]` | Created now, unused until Codex installed. |
+**Revised after UI inspection (2026-08-27): 3 profiles, not 4.** Plan mode is a
+per-*step* checkbox in Kandev's workflow editor, so the Draft step gets plan mode
+by ticking that box on the normal build profile — no dedicated `claude-plan`
+profile needed.
 
-`reset_agent_context` gives `[5]` and `[6]` independence from `[4]` even though
-they share the `claude-build` profile — same config, separate fresh session.
+| Profile name | Agent | Model | Permission mode | Used by | Notes |
+|---|---|---|---|---|---|
+| `claude-build` | Claude | `Default` (Sonnet) | `Accept Edits` | `[1]` (with step "Plan mode" ✓), `[4]`, `[5]`, `[6]`, `[8]` | `Accept Edits` so autonomous `auto_start_agent` runs don't stall on edit prompts. Draft step overrides to plan mode via its checkbox. |
+| `gemini-review` | Gemini | pinned (see build step 2) | default | `[3]` | Pinned model = reproducible reviews. |
+| `codex-review` | Codex | TBD | default | `[2]` | Create + immediately toggle "Disable profile"; unused until Codex installed. May not be creatable until the `codex-acp` agent is probed — if so, defer creation. |
+
+- `reset_agent_context` (per-step checkbox) gives `[5]` and `[6]` independence from
+  `[4]` even though they share `claude-build` — same config, separate fresh session.
+- The Kandev workflow editor exposes: per-step **profile override** dropdown
+  (`Agent • ProfileName`), and checkboxes **Start step**, **Auto-start agent**,
+  **Plan mode**, **Reset agent context**, **Allow manual move**,
+  **Show in command panel**, **Auto-archive**, **WIP limit**, **Pull from** (feeder).
 
 ---
 
@@ -298,29 +306,31 @@ needs. `reset_agent_context` is added where §5 requires it.
 
 ---
 
-## 10. Open questions — resolve against the workflow-editor UI before authoring YAML
+## 10. Open questions — RESOLVED against the workflow-editor UI (2026-08-27)
 
-1. **Disabled step for Codex.** How does Kandev represent a step whose agent is
-   unavailable? Options to check: omit `agent_profile` and set `allow_manual_move`
-   so a human clicks through; a per-step `enabled` flag; or leave `[2]` out of the
-   YAML entirely and insert it later (renumbering positions). Preferred: keep it in,
-   find the skip mechanism.
-2. **`decision_required` / `on_approval_resolved` semantics.** Can an *agent*
-   record an approve/reject decision (vs. only a human)? If yes, a decision-gated
-   transition may be cleaner than `move_task_kandev`. If no, `move_task_kandev`
-   stands.
-3. **`step_complete_kandev` vs `move_task_kandev`.** The binary references
-   `auto_advance_requires_signal` and a `step_complete_kandev` tool. Determine
-   whether steps should be configured "no auto-advance, agent signals completion"
-   and whether that changes the reject wiring.
-4. **`create_pr` automation vs. agent-run `gh`.** `[8]` could use the `create_pr`
-   automation or have `claude-build` run `gh pr create`. The automation is simpler
-   if it supports draft/normal and merge; the agent is more flexible for CI fixup.
-5. **`notify` target.** Where does `notify` deliver (desktop, webhook, in-app only)?
-   Determines whether `[7]` and `[10]` actually reach Sharif when away.
-6. **Model IDs.** Confirm the exact `model` string Kandev expects for the pinned
-   Gemini profile (`gemini-2.5-pro` vs a Kandev-internal alias) and for Claude
-   (`sonnet` vs `claude-sonnet-...`).
+1. **Disabled step for Codex.** ✅ Per-profile **"Disable profile"** switch. Create
+   `codex-review`, disable it; the `[2]` step keeps **Allow manual move** so a human
+   clicks the task past it until Codex is enabled. Caveat: profile may not be
+   creatable before `codex-acp` is probed — confirm at build time.
+2. **Decision-gated transitions.** ✅ **Not exposed** in the workflow editor. The
+   only transition options per trigger are: *Do nothing (wait for user)*, *Move to
+   next step*, *Move to previous step*, *Move to specific step* — all unconditional.
+   `move_task_kandev` (agent-driven) is therefore the **only** way to route on an
+   approve/reject verdict. Design already assumes this (§4).
+3. **`step_complete` signal.** ✅ It is the **"Wait for agent completion signal"**
+   checkbox on a step. When ticked, the step does not run its On-Turn-Complete
+   transition until the agent calls the completion signal. Optional; consider using
+   it on review steps so a reviewer must explicitly signal "done" (it does not,
+   by itself, distinguish approve from reject — the `move_task_kandev` call does).
+4. **`create_pr` vs `gh`.** ✅ `create_pr` is **not** a step transition option (it
+   lives in the separate workspace *Automations* feature). `[8] Integrate` will
+   have its agent run `gh pr create` / `gh pr merge` directly.
+5. **`notify` target.** ⏳ Still to check under Settings → Notifications. Non-blocking;
+   `[7]` / `[10]` rely on manual attention until confirmed.
+6. **Model / mode values.** ✅ UI uses friendly names. Claude model dropdown:
+   `Default` / `Sonnet` / `Fable` / `Opus` / `Haiku` + Effort selector. Permission
+   modes: `Auto` / `Manual (default)` / `Accept Edits` / `Plan Mode` / `Don't Ask` /
+   `Bypass Permissions`. Gemini model options TBD at build time.
 
 ---
 
