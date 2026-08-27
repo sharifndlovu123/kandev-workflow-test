@@ -128,8 +128,9 @@ survives context resets. The hand-off `prompt` is a pointer, not the payload.
   (code loop) near the top.
 - The originating step (`[1]` Draft, `[4]` Implement) increments its counter each
   time it re-submits.
-- Every reviewing step reads the counter first. When it is about to record the
-  **3rd** rejection, it instead calls
+- Every reviewing step reads the counter first. A rejection that would push the
+  counter to **3 or higher** is not sent back to the originating step; instead the
+  reviewer calls
   `move_task_kandev([10] Needs Human, prompt="Stalled after 3 rounds. Core disagreement: …")`.
 - Not enforceable in pure YAML (Kandev has no loop-counter automation) — enforced
   by prompt discipline plus the durable counter. Transparent and debuggable.
