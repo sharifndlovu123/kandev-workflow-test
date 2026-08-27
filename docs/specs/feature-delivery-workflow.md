@@ -31,15 +31,15 @@ change the feature doc.
 
 ## 2. Environment & divergences from Kandev docs
 
-| Component | State |
-|---|---|
-| OS | Ubuntu 24.04.4 |
-| Go / Node / Docker | 1.26.7 / 24.13.0 / 29.7.2 — all present |
-| `claude` | 2.1.247, authenticated |
-| `gemini` | 0.57.0 (`@google/gemini-cli`), authenticated, free tier |
-| `codex` | **not installed** — needs a ChatGPT paid plan or API-key top-up; deferred |
-| `kandev` | 0.91.0, installed globally via npm; runs headless on port 7317; data in `~/.kandev` |
-| Test repo | `github.com/sharifndlovu123/kandev-workflow-test` (private), local clone at `/home/sharif/Documents/kandev` |
+| Component          | State                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| OS                 | Ubuntu 24.04.4                                                                                              |
+| Go / Node / Docker | 1.26.7 / 24.13.0 / 29.7.2 — all present                                                                     |
+| `claude`           | 2.1.247, authenticated                                                                                      |
+| `gemini`           | 0.57.0 (`@google/gemini-cli`), authenticated, free tier                                                     |
+| `codex`            | **not installed** — needs a ChatGPT paid plan or API-key top-up; deferred                                   |
+| `kandev`           | 0.91.0, installed globally via npm; runs headless on port 7317; data in `~/.kandev`                         |
+| Test repo          | `github.com/sharifndlovu123/kandev-workflow-test` (private), local clone at `/home/sharif/Documents/kandev` |
 
 **Divergences already hit:**
 
@@ -65,19 +65,19 @@ change the feature doc.
 
 11 steps. `[n]` is the 0-based `position`. Two frozen iteration loops plus an escape hatch.
 
-| `[n]` | Step | Agent profile | `on_enter` automations | Kicks back to |
-|---|---|---|---|---|
-| `[0]` | Backlog | — | — | — |
-| `[1]` | Draft *(start)* | `claude-build` + step **Plan mode** ✓ | `auto_start_agent` (Plan mode via step checkbox) | — (all rejections land here) |
-| `[2]` | Review · Codex | `codex-review` *(disabled until Codex installed)* | `reset_agent_context`, `auto_start_agent` | `[1]` |
-| `[3]` | Review · Gemini | `gemini-review` | `reset_agent_context`, `auto_start_agent` | `[1]` |
-| `[4]` | Implement | `claude-build` | `reset_agent_context`, `auto_start_agent` | — (test/review failures land here) |
-| `[5]` | Test | `claude-build` (fresh) | `reset_agent_context`, `auto_start_agent` | `[4]` |
-| `[6]` | Code Review | `claude-build` (fresh) | `reset_agent_context`, `auto_start_agent` | `[4]` |
-| `[7]` | Human Review | — | `notify` | `[4]` |
-| `[8]` | Integrate | `claude-build` | `auto_start_agent` | — |
-| `[9]` | Done | — | `archive_task` (after 168h) | — |
-| `[10]` | Needs Human | — | `notify` | — (manual arbitration) |
+| `[n]`  | Step            | Agent profile                                     | `on_enter` automations                           | Kicks back to                      |
+| ------ | --------------- | ------------------------------------------------- | ------------------------------------------------ | ---------------------------------- |
+| `[0]`  | Backlog         | —                                                 | —                                                | —                                  |
+| `[1]`  | Draft *(start)* | `claude-build` + step **Plan mode** ✓             | `auto_start_agent` (Plan mode via step checkbox) | — (all rejections land here)       |
+| `[2]`  | Review · Codex  | `codex-review` *(disabled until Codex installed)* | `reset_agent_context`, `auto_start_agent`        | `[1]`                              |
+| `[3]`  | Review · Gemini | `gemini-review`                                   | `reset_agent_context`, `auto_start_agent`        | `[1]`                              |
+| `[4]`  | Implement       | `claude-build`                                    | `reset_agent_context`, `auto_start_agent`        | — (test/review failures land here) |
+| `[5]`  | Test            | `claude-build` (fresh)                            | `reset_agent_context`, `auto_start_agent`        | `[4]`                              |
+| `[6]`  | Code Review     | `claude-build` (fresh)                            | `reset_agent_context`, `auto_start_agent`        | `[4]`                              |
+| `[7]`  | Human Review    | —                                                 | `notify`                                         | `[4]`                              |
+| `[8]`  | Integrate       | `claude-build`                                    | `auto_start_agent`                               | —                                  |
+| `[9]`  | Done            | —                                                 | `archive_task` (after 168h)                      | —                                  |
+| `[10]` | Needs Human     | —                                                 | `notify`                                         | — (manual arbitration)             |
 
 - **Spec loop:** `[1]` ↔ `[2]`/`[3]`. Runs before any code is written. Reviews judge
   the *plan*, not code.
@@ -112,6 +112,7 @@ Kandev's `move_task_kandev` MCP tool is the primitive. Signature:
 Before ending its turn the agent does **two** things:
 
 1. `update_task_plan_kandev` — append a section to the persistent plan:
+   
    ```
    ## Review round N — REJECTED by <agent>
    - <objection 1: file:line, why it matters, what would satisfy it>
@@ -179,11 +180,11 @@ per-*step* checkbox in Kandev's workflow editor, so the Draft step gets plan mod
 by ticking that box on the normal build profile — no dedicated `claude-plan`
 profile needed.
 
-| Profile name | Agent | Model | Permission mode | Used by | Notes |
-|---|---|---|---|---|---|
-| `claude-build` | Claude | `Default` (Sonnet) | `Accept Edits` | `[1]` (with step "Plan mode" ✓), `[4]`, `[5]`, `[6]`, `[8]` | `Accept Edits` so autonomous `auto_start_agent` runs don't stall on edit prompts. Draft step overrides to plan mode via its checkbox. |
-| `gemini-review` | Gemini | pinned (see build step 2) | default | `[3]` | Pinned model = reproducible reviews. |
-| `codex-review` | Codex | TBD | default | `[2]` | Create + immediately toggle "Disable profile"; unused until Codex installed. May not be creatable until the `codex-acp` agent is probed — if so, defer creation. |
+| Profile name    | Agent  | Model                     | Permission mode | Used by                                                     | Notes                                                                                                                                                            |
+| --------------- | ------ | ------------------------- | --------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude-build`  | Claude | `Default` (Sonnet)        | `Accept Edits`  | `[1]` (with step "Plan mode" ✓), `[4]`, `[5]`, `[6]`, `[8]` | `Accept Edits` so autonomous `auto_start_agent` runs don't stall on edit prompts. Draft step overrides to plan mode via its checkbox.                            |
+| `gemini-review` | Gemini | pinned (see build step 2) | default         | `[3]`                                                       | Pinned model = reproducible reviews.                                                                                                                             |
+| `codex-review`  | Codex  | TBD                       | default         | `[2]`                                                       | Create + immediately toggle "Disable profile"; unused until Codex installed. May not be creatable until the `codex-acp` agent is probed — if so, defer creation. |
 
 - `reset_agent_context` (per-step checkbox) gives `[5]` and `[6]` independence from
   `[4]` even though they share `claude-build` — same config, separate fresh session.
@@ -207,13 +208,13 @@ profile needed.
 
 ## 8. Skills
 
-| Step | Skills the agent is told to invoke |
-|---|---|
-| `[1]` Draft | `clean-code` (light), `architecture-review` |
-| `[2]` Review · Codex / `[3]` Review · Gemini | `architecture-review` |
-| `[4]` Implement | `clean-code` |
-| `[5]` Test | — |
-| `[6]` Code Review | `clean-code`, `architecture-review` |
+| Step                                         | Skills the agent is told to invoke          |
+| -------------------------------------------- | ------------------------------------------- |
+| `[1]` Draft                                  | `clean-code` (light), `architecture-review` |
+| `[2]` Review · Codex / `[3]` Review · Gemini | `architecture-review`                       |
+| `[4]` Implement                              | `clean-code`                                |
+| `[5]` Test                                   | —                                           |
+| `[6]` Code Review                            | `clean-code`, `architecture-review`         |
 
 - `clean-code` — already installed at `~/.claude/skills/clean-code`. Available to
   all Claude steps. **Not** present on the Gemini side.

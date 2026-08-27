@@ -85,8 +85,10 @@ workflows:
              - create_task_plan_kandev (or update_task_plan_kandev on a revision)
              - put "Revision round: N" near the top
              - do not create any other file
-             - move the task to "Review - Codex".
+             - move the task to "Review - Spec".
                Handoff: "Spec saved, revision round N, ready for review."
+             (NOTE: "Review - Codex" is disabled until Codex CLI is installed;
+              skip straight to "Review - Spec".)
 
       - name: Review - Codex
         position: 2
@@ -125,12 +127,18 @@ workflows:
                (REJECTED: numbered objections, each with why-it-matters and
                 what-would-satisfy-it. APPROVED: one line on what you validated.)
           4. ROUTE:
-             - APPROVED -> move to "Review - Gemini". Handoff: "Approved round N."
+             - APPROVED -> move to "Review - Spec". Handoff: "Approved round N."
              - REJECTED and N < 3 -> move to "Draft". Handoff: "Rejected round N."
              - REJECTED and N >= 3 -> move to "Needs Human".
                Handoff: "Stalled round N: <one-line core disagreement>."
 
-      - name: Review - Gemini
+      # TEMPORARY: this step should run Gemini (cross-vendor spec review). The
+      # Gemini CLI's API key project has depleted billing credits, so until that
+      # is fixed it runs a fresh Claude session instead. Restore by setting
+      # agent_profile back to {agent_name: Gemini, model: <a free-tier flash model>}
+      # and reverting the prompt header. reset_agent_context still gives it a
+      # genuinely independent session.
+      - name: Review - Spec
         position: 3
         color: bg-cyan-500
         is_start_step: false
@@ -139,27 +147,31 @@ workflows:
         auto_advance_requires_signal: false
         cancel_triggers_turn_complete: false
         agent_profile:
-          agent_name: Gemini
-          model: gemini-3.1-pro-preview-customtools
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
         events:
           on_enter:
             - type: reset_agent_context
             - type: auto_start_agent
         prompt: |
-          [SPEC REVIEW - Gemini, independent, final spec gate]
+          [SPEC REVIEW - fresh session, final spec gate]
           Fresh session. No memory of prior rounds. This is the last gate before
-          implementation - be exacting.
+          implementation - be exacting. Review the spec as an independent critic;
+          do not assume the drafting agent got it right.
 
           1. READ: get_task_plan_kandev (full spec + all prior review rounds); the
              feature doc under docs/specs/; enough of the codebase to judge
              implementability. Note "Revision round: N".
           2. REVIEW: invoke the `architecture-review` skill and apply it.
-             Same dimensions as the Codex review: implementability, architecture,
-             completeness, scope, second-order effects. Also confirm the plan
-             actually resolved every objection from earlier "## Spec review round"
-             sections.
+             Dimensions: implementability against the real codebase, architecture
+             (layer fit, dependency direction, coupling, real vs speculative
+             abstractions), completeness (edge cases, error paths, unhappy path,
+             test coverage of each behavior), scope (within the feature doc; one
+             coherent thing), second-order effects. Also confirm the plan actually
+             resolved every objection from earlier "## Spec review round" sections.
           3. VERDICT: update_task_plan_kandev, append:
-               ## Spec review round N - APPROVED|REJECTED by Gemini
+               ## Spec review round N - APPROVED|REJECTED by Spec Review
                (REJECTED: numbered objections with why + fix. APPROVED: one line.)
           4. ROUTE:
              - APPROVED -> move to "Implement". Handoff: "Spec approved, round N."
