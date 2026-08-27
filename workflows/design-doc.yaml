@@ -1,0 +1,261 @@
+version: 1
+type: kandev_workflow
+workflows:
+  - name: Design Doc
+    description: >-
+      Turn a rough feature/product idea into an approved design document committed
+      under docs/specs/. Draft -> independent design review(s) -> human approval ->
+      commit as a PR. Same control shape as "Feature Delivery" minus the
+      implementation half. The output doc becomes immutable input to a later
+      Feature Delivery task.
+    prompt: |
+      ## Kandev navigation protocol (applies to every step)
+
+      You are one step of a Kandev workflow task. Your task_id and workflow_id are
+      in the session context.
+
+      The persistent task PLAN (create_task_plan_kandev / get_task_plan_kandev /
+      update_task_plan_kandev) is the single source of truth for this task. The
+      DESIGN DOC being produced lives IN the plan until the final Commit step
+      writes it to a file. Verdicts and the round counter live there too. Never
+      rely on chat history - it is reset between steps.
+
+      To move the task to another step:
+        1. list_workflow_steps_kandev(workflow_id)  -> step names to ids
+        2. move_task_kandev(task_id, workflow_id, workflow_step_id=<target id>,
+           prompt="<short factual handoff, <= 2 sentences>")
+        3. STOP. The move_task_kandev call is the LAST action of your turn. Call it
+           exactly ONCE, then end your turn immediately. Do NOT call it again, do
+           NOT keep working, do NOT advance the task past the step you moved it to
+           - a step that runs no agent (e.g. "Human Approval") is a DELIBERATE
+           HUMAN GATE; leave the task there.
+
+      Never argue your case in a move `prompt`. A fresh-context reviewer forms its
+      own judgment from the plan and the repo. All substance goes in the plan.
+
+    steps:
+      - name: Backlog
+        position: 0
+        color: bg-neutral-400
+        is_start_step: false
+        show_in_command_panel: false
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        events: {}
+
+      - name: Draft Doc
+        position: 1
+        color: bg-purple-500
+        is_start_step: true
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
+        events:
+          on_enter:
+            - type: enable_plan_mode
+            - type: auto_start_agent
+          on_exit:
+            - type: disable_plan_mode
+        prompt: |
+          [DRAFT DOC - produce a design document]
+          Plan mode is ON: you cannot change files. This phase is research + writing
+          the doc into the task plan only.
+
+          {{task_prompt}}
+
+          ROUND CHECK: the plan may already contain "Revision round: N" and one or
+          more "## Design review round K - REJECTED" sections. If so this is a
+          revision: read every objection, address each, increment the counter.
+          Otherwise this is round 1.
+
+          1. UNDERSTAND THE ASK. What problem, who benefits, what constraints,
+             what does success look like. If the ask is ambiguous on something
+             that changes the design, call ask_user_question_kandev and stop.
+          2. SKILLS. Invoke `architecture-review` and `clean-code`.
+          3. EXPLORE. If a codebase exists, map the relevant architecture,
+             patterns, integration points, and any existing docs/decisions. A
+             design doc must fit the system that exists.
+          4. DERIVE A SLUG. A short kebab-case name for this feature (e.g.
+             "user-invites", "rate-limiting"). The doc will be committed as
+             docs/specs/<slug>.md. Record the slug near the top of the plan.
+          5. WRITE THE DESIGN DOC into the plan (create_task_plan_kandev, or
+             update_task_plan_kandev on a revision). Structure:
+             - # Feature: <name>
+             - ## Why  (problem, who benefits, motivating scenarios)
+             - ## Scope  (what is in; a bulleted "Explicitly out of scope")
+             - ## Design  (2-3 approaches with trade-offs - name what each gives
+               up - and a recommendation; the data/state model; key components and
+               their responsibilities; mermaid diagrams for architecture/flow)
+             - ## Behaviour  (each behaviour as a concrete, testable statement)
+             - ## Risks & second-order effects
+             - ## Success criteria
+             Put "Revision round: N" and "slug: <slug>" near the top.
+             Do NOT create any file - the doc lives in the plan for now.
+          6. HAND OFF: move the task to "Review - Design".
+             Handoff: "Design doc drafted, revision round N."
+             (NOTE: "Review - Codex" is disabled until Codex CLI is installed;
+              skip straight to "Review - Design".)
+             One move_task_kandev call, then end your turn.
+
+      - name: Review - Codex
+        position: 2
+        color: bg-sky-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Codex
+          model: gpt-5-codex
+          mode: default
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [DESIGN REVIEW - Codex, independent]
+          Fresh session. No memory of prior rounds. Everything is in the plan and
+          the repo.
+
+          1. READ: get_task_plan_kandev (the doc + any prior review rounds); if a
+             codebase exists, explore enough to judge fit. Note "Revision round: N".
+          2. REVIEW: invoke `architecture-review`. Judge:
+             - Coherence: does the design actually solve the stated problem?
+             - Completeness: scope, behaviours, edge cases, the unhappy path,
+               operational concerns.
+             - Architecture: fit with the existing system, dependency direction,
+               coupling, real vs speculative abstractions.
+             - Trade-offs: are alternatives considered honestly; does the pick
+               name what it gives up?
+             - Second-order effects: what does this change ripple into?
+          3. VERDICT: update_task_plan_kandev, append:
+               ## Design review round N - APPROVED|REJECTED by Codex
+               (REJECTED: numbered objections with why + what-would-satisfy.
+                APPROVED: one line on what you validated.)
+          4. ROUTE (one move, then end your turn):
+             - APPROVED -> move to "Review - Design". Handoff: "Approved round N."
+             - REJECTED and N < 3 -> move to "Draft Doc". Handoff: "Rejected round N."
+             - REJECTED and N >= 3 -> move to "Needs Human".
+               Handoff: "Stalled round N: <one-line core disagreement>."
+
+      # TEMPORARY: should run Gemini (cross-vendor). Gemini CLI billing is
+      # depleted, so this runs a fresh Claude session for now. Restore by setting
+      # agent_profile to {agent_name: Gemini, model: <free-tier flash model>}.
+      # reset_agent_context still gives a genuinely independent session.
+      - name: Review - Design
+        position: 3
+        color: bg-cyan-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [DESIGN REVIEW - fresh session, final review gate]
+          Fresh session. No memory of prior rounds. Last gate before the human -
+          be exacting. Review as an independent critic; do not assume the drafter
+          got it right.
+
+          1. READ: get_task_plan_kandev (doc + all prior review rounds); explore
+             the codebase if one exists. Note "Revision round: N".
+          2. REVIEW: invoke `architecture-review`. Same dimensions as the Codex
+             review - coherence, completeness, architecture fit, trade-off honesty,
+             second-order effects. Also confirm every objection in earlier
+             "## Design review round" sections was actually resolved.
+          3. VERDICT: update_task_plan_kandev, append:
+               ## Design review round N - APPROVED|REJECTED by Design Review
+               (REJECTED: numbered objections with why + fix. APPROVED: one line.)
+          4. ROUTE (one move, then end your turn):
+             - APPROVED -> move to "Human Approval". Handoff: "Design approved, round N."
+             - REJECTED and N < 3 -> move to "Draft Doc". Handoff: "Rejected round N."
+             - REJECTED and N >= 3 -> move to "Needs Human".
+               Handoff: "Stalled round N: <one-line core disagreement>."
+
+      - name: Human Approval
+        position: 4
+        color: bg-yellow-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        events: {}
+        prompt: |
+          [HUMAN APPROVAL GATE - no agent runs here]
+          Sharif reads the design doc in the task plan.
+          - Approve -> drag the task to "Commit Doc".
+          - Changes -> add a note to the plan and drag it back to "Draft Doc".
+
+      - name: Commit Doc
+        position: 5
+        color: bg-indigo-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
+        events:
+          on_enter:
+            - type: auto_start_agent
+        prompt: |
+          [COMMIT DOC]
+          The human approved the design. Commit it as a PR.
+
+          1. get_task_plan_kandev. Read "slug: <slug>" and the doc body.
+          2. Write the doc body (the # Feature ... sections, NOT the round-counter
+             or review-round sections) to docs/specs/<slug>.md. Create the
+             docs/specs/ directory if needed.
+          3. Commit on a new branch with an explicit path:
+             git checkout -b docs/<slug>
+             git add docs/specs/<slug>.md
+             git commit -m "docs: <slug> design doc"
+          4. Push and open a PR (NOT draft, NOT auto-merged - the doc is the source
+             of truth for future work, so a human merges it deliberately):
+             gh pr create --title "docs: <slug> design doc"
+               --body "<one-paragraph summary of the design + link to nothing else>"
+          5. Record the PR URL in the plan. Move the task to "Done".
+             Handoff: "Doc PR opened: <URL>." Then end your turn.
+
+      - name: Done
+        position: 6
+        color: bg-green-500
+        is_start_step: false
+        show_in_command_panel: false
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        auto_archive_after_hours: 168
+        events: {}
+
+      - name: Needs Human
+        position: 7
+        color: bg-red-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        events: {}
+        prompt: |
+          [NEEDS HUMAN - the design review loop hit its 3-round cap]
+          Read the plan's "## Design review round" sections for the disagreement.
+          Then edit the plan and drag to the right step, or archive the task.
