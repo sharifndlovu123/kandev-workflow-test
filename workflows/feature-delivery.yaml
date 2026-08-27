@@ -1,0 +1,366 @@
+version: 1
+type: kandev_workflow
+workflows:
+  - name: Feature Delivery
+    description: >-
+      Spec -> independent multi-agent review -> implement -> test -> code review
+      -> human diff gate -> merge. Assumes an approved feature doc already exists
+      under docs/specs/. Two loops (spec, code), each capped at 3 rounds, with a
+      Needs Human escape hatch.
+    prompt: |
+      ## Kandev navigation protocol (applies to every step)
+
+      You are one step of a Kandev workflow task. Your task_id and workflow_id are
+      in the session context.
+
+      The persistent task PLAN (create_task_plan_kandev / get_task_plan_kandev /
+      update_task_plan_kandev) is the single source of truth for this task.
+      Verdicts, rationale, and the round counters live there — never rely on chat
+      history, which is reset between several steps.
+
+      To move the task to another step:
+        1. list_workflow_steps_kandev(workflow_id)  -> step names to ids
+        2. move_task_kandev(task_id, workflow_id, workflow_step_id=<target id>,
+           prompt="<short factual handoff, <= 2 sentences>")
+
+      Never argue your case in the move `prompt`. A fresh-context reviewer must
+      form its own judgment from the plan and the repository, not from your
+      framing. All substance goes in the plan.
+
+    steps:
+      - name: Backlog
+        position: 0
+        color: bg-neutral-400
+        is_start_step: false
+        show_in_command_panel: false
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        events: {}
+
+      - name: Draft
+        position: 1
+        color: bg-purple-500
+        is_start_step: true
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
+        events:
+          on_enter:
+            - type: enable_plan_mode
+            - type: auto_start_agent
+          on_exit:
+            - type: disable_plan_mode
+        prompt: |
+          [DRAFT - task-level implementation spec]
+          Plan mode is ON: you cannot change files. This phase is design only.
+
+          {{task_prompt}}
+
+          ROUND CHECK: the plan may already contain "Revision round: N" and one or
+          more "## Spec review round K - REJECTED" sections. If so this is a
+          revision: read every objection, address each, and increment the counter.
+          Otherwise this is round 1.
+
+          1. READ THE FEATURE DOC. Find and read the feature document under
+             docs/specs/ that this task refers to. Your spec MUST stay within its
+             scope. If it is missing or the task falls outside it, call
+             ask_user_question_kandev and stop.
+          2. SKILLS. Invoke the `architecture-review` and `clean-code` skills.
+          3. EXPLORE. Similar features, the relevant architecture, integration
+             points, existing test patterns, and the repo's test command.
+          4. WRITE THE SPEC:
+             - problem statement + success criteria
+             - 2-3 approaches with trade-offs (name what each gives up) + a pick
+             - files to create/modify and each one's responsibility
+             - every behavior phrased as a testable assertion
+             - edge cases, error paths, explicit out-of-scope notes
+             - mermaid for diagrams
+          5. SAVE + HAND OFF:
+             - create_task_plan_kandev (or update_task_plan_kandev on a revision)
+             - put "Revision round: N" near the top
+             - do not create any other file
+             - move the task to "Review - Codex".
+               Handoff: "Spec saved, revision round N, ready for review."
+
+      - name: Review - Codex
+        position: 2
+        color: bg-sky-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Codex
+          model: gpt-5-codex
+          mode: default
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [SPEC REVIEW - Codex, independent]
+          Fresh session. You have no memory of prior rounds. Everything you need is
+          in the task plan and the repository.
+
+          1. READ: get_task_plan_kandev (the full spec + any prior review rounds);
+             the feature doc under docs/specs/; enough of the codebase to judge
+             whether the plan is implementable as written. Note "Revision round: N".
+          2. REVIEW: invoke the `architecture-review` skill and apply it.
+             - Implementability against the real codebase
+             - Architecture: layer fit, dependency direction, coupling, real vs
+               speculative abstractions
+             - Completeness: edge cases, error paths, unhappy path, test coverage
+               of each behavior
+             - Scope: within the feature doc; one coherent thing
+             - Second-order effects
+          3. VERDICT: update_task_plan_kandev, append:
+               ## Spec review round N - APPROVED|REJECTED by Codex
+               (REJECTED: numbered objections, each with why-it-matters and
+                what-would-satisfy-it. APPROVED: one line on what you validated.)
+          4. ROUTE:
+             - APPROVED -> move to "Review - Gemini". Handoff: "Approved round N."
+             - REJECTED and N < 3 -> move to "Draft". Handoff: "Rejected round N."
+             - REJECTED and N >= 3 -> move to "Needs Human".
+               Handoff: "Stalled round N: <one-line core disagreement>."
+
+      - name: Review - Gemini
+        position: 3
+        color: bg-cyan-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Gemini
+          model: gemini-3.1-pro-preview-customtools
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [SPEC REVIEW - Gemini, independent, final spec gate]
+          Fresh session. No memory of prior rounds. This is the last gate before
+          implementation - be exacting.
+
+          1. READ: get_task_plan_kandev (full spec + all prior review rounds); the
+             feature doc under docs/specs/; enough of the codebase to judge
+             implementability. Note "Revision round: N".
+          2. REVIEW: invoke the `architecture-review` skill and apply it.
+             Same dimensions as the Codex review: implementability, architecture,
+             completeness, scope, second-order effects. Also confirm the plan
+             actually resolved every objection from earlier "## Spec review round"
+             sections.
+          3. VERDICT: update_task_plan_kandev, append:
+               ## Spec review round N - APPROVED|REJECTED by Gemini
+               (REJECTED: numbered objections with why + fix. APPROVED: one line.)
+          4. ROUTE:
+             - APPROVED -> move to "Implement". Handoff: "Spec approved, round N."
+             - REJECTED and N < 3 -> move to "Draft". Handoff: "Rejected round N."
+             - REJECTED and N >= 3 -> move to "Needs Human".
+               Handoff: "Stalled round N: <one-line core disagreement>."
+
+      - name: Implement
+        position: 4
+        color: bg-blue-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [IMPLEMENT]
+          Fresh session. Permission mode: Accept Edits.
+
+          {{task_prompt}}
+
+          ROUND CHECK: the plan may contain "Build round: M" plus "## Test round" or
+          "## Code review round" sections from a prior attempt. If so, read them,
+          fix every issue, and increment M. Otherwise M = 1.
+
+          1. READ THE APPROVED PLAN: get_task_plan_kandev. Implement exactly what it
+             specifies - it passed review. If you believe it is wrong, stop and call
+             ask_user_question_kandev; do not silently deviate.
+          2. TDD. Invoke the `clean-code` skill. For each behavior:
+             failing test -> confirm it fails right -> minimum code -> green ->
+             refactor -> commit (explicit paths, never `git add .`).
+             Follow codebase conventions. Small functions, meaningful names,
+             nesting <= 3, no dead or speculative code.
+          3. STOP CONDITIONS: blocker, unclear requirement, 3 failed attempts on one
+             issue, or a fix needing an architectural change the plan didn't
+             anticipate -> stop and ask.
+          4. HAND OFF: commit all YOUR task changes (leave unrelated uncommitted
+             work alone). Put "Build round: M" in the plan. Move the task to "Test".
+             Handoff: "Implemented, build round M."
+
+      - name: Test
+        position: 5
+        color: bg-teal-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [TEST - cold verification]
+          Fresh session. You did not write this code. Find out whether it works and
+          whether it is really tested - do not defend it.
+
+          1. READ: get_task_plan_kandev - the behaviors that must exist. Note
+             "Build round: M".
+          2. RUN THE FULL SUITE. Find the test command (package.json scripts /
+             Makefile / etc.). Run the entire suite, plus any linter / typecheck.
+          3. VERIFY THE TESTS ARE REAL. For each behavior in the plan: a test
+             exists that exercises it, it passes, and it asserts something
+             meaningful (reject assert(true), empty bodies, tests that never call
+             the code under test).
+          4. VERDICT + ROUTE. update_task_plan_kandev, append:
+               ## Test round M - PASS|FAIL
+               (FAIL: exact failing output, which behavior, file:line)
+             - PASS -> move to "Code Review". Handoff: "Tests pass, build round M."
+             - FAIL and M < 3 -> move to "Implement". Handoff: "Test failures, round M."
+             - FAIL and M >= 3 -> move to "Needs Human".
+
+      - name: Code Review
+        position: 6
+        color: bg-orange-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [CODE REVIEW - security, architecture, quality]
+          Fresh session. Review ONLY the diff on this branch, plus the plan for intent.
+
+          1. SCOPE THE DIFF:
+             - git remote show origin | grep 'HEAD branch'   (default branch)
+             - git diff <default>...HEAD --name-only          (committed)
+             - git diff HEAD --name-only ; git ls-files --others --exclude-standard
+             Review the union. Read each file from the working tree.
+          2. REVIEW. Invoke `clean-code` and `architecture-review`.
+             - SECURITY (blockers): secrets in code; missing input validation at
+               boundaries; injection (SQL/XSS/command/path); missing auth on new
+               endpoints.
+             - ARCHITECTURE: correct layer; dependency direction; domain logic out
+               of transport/controllers/infra; no bypassed boundaries; abstractions
+               are real boundaries.
+             - QUALITY: naming; small focused functions; no dead/commented-out/
+               speculative code; nesting <= 3; comments say why not what.
+          3. FIX OR REPORT. Fix trivial issues directly and commit with an
+             explicit-path `review:` message. Record author-facing issues in the
+             plan with file:line, why, and fix. Only findings you are >= 80%
+             confident about. Do not comment on unmodified code.
+          4. VERDICT + ROUTE. update_task_plan_kandev, append:
+               ## Code review round M - PASS|CHANGES REQUIRED
+               (findings)
+             - PASS -> move to "Human Review". Handoff: "Code review clean, round M."
+             - CHANGES REQUIRED and M < 3 -> move to "Implement".
+               Handoff: "Code review changes, round M."
+             - CHANGES REQUIRED and M >= 3 -> move to "Needs Human".
+
+      - name: Human Review
+        position: 7
+        color: bg-yellow-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        events: {}
+        prompt: |
+          [HUMAN REVIEW GATE - no agent runs here]
+          Sharif reviews the branch diff in Kandev's changes panel.
+          - Approve  -> drag the task to "Integrate".
+          - Changes  -> add a comment / edit the plan and drag it back to "Implement".
+
+      - name: Integrate
+        position: 8
+        color: bg-indigo-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Claude
+          model: sonnet
+          mode: acceptEdits
+        events:
+          on_enter:
+            - type: auto_start_agent
+        prompt: |
+          [INTEGRATE]
+          The human approved the diff. Ship it.
+
+          1. PREPARE: run formatters/linters; restore unrelated touched files with
+             explicit paths; commit any remaining task changes (explicit paths).
+          2. PR: push the branch. Check for .github/pull_request_template.md and
+             follow it. `gh pr create --title "<conventional commit title>"
+             --body "<summary, validation steps, checklist>"`. Not a draft - it is
+             already human-approved.
+          3. CI: if the repo has CI, `gh pr checks <n>`, poll every 30s up to
+             10 min; fix failures (`gh run view <id> --log-failed`), commit, push,
+             re-poll. If no CI, continue.
+          4. MERGE: `gh pr merge <n> --squash --delete-branch`. If the repo requires
+             a second human approval on the PR, stop here and record the PR URL in
+             the plan instead.
+          5. HAND OFF: record the PR URL in the plan. Move the task to "Done".
+             Handoff: "Merged: <PR URL>."
+
+      - name: Done
+        position: 9
+        color: bg-green-500
+        is_start_step: false
+        show_in_command_panel: false
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        auto_archive_after_hours: 168
+        events: {}
+
+      - name: Needs Human
+        position: 10
+        color: bg-red-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        events: {}
+        prompt: |
+          [NEEDS HUMAN - a loop hit its 3-round cap]
+          Read the task plan's review/test/code-review rounds to see the
+          disagreement. Then either: edit the plan and drag to the right step, send
+          it back to "Draft" with a ruling, or archive the task.
