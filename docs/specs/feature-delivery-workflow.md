@@ -1,9 +1,15 @@
 # Feature Delivery Workflow — Design Spec
 
-**Date:** 2026-08-27
-**Status:** Approved design, not yet built
+**Date:** 2026-08-27 · **Last refreshed:** 2026-08-30
+**Status:** Built and proven end-to-end. Claude-only for now (multi-vendor slots
+reserved). See §13 for build reality, divergences, and open items.
 **Owner:** Sharif
-**Target system:** Kandev v0.91.0 (orchestration layer over Claude Code, Gemini CLI, Codex CLI)
+**Target system:** Kandev (orchestration layer over Claude Code; Gemini CLI /
+Codex CLI slots reserved)
+
+> **Reading order:** §1–§12 are the original design (kept intact for the
+> rationale). §13 records what was actually built and where it diverged — read it
+> alongside any section it supersedes. Where the two disagree, §13 wins.
 
 ---
 
@@ -355,18 +361,22 @@ needs. `reset_agent_context` is added where §5 requires it.
    step 3, Codex step 2 unattached (expected). Import matches profiles by
    `{agent_name, model, mode}`; **omit `mode` in the YAML when the profile's stored
    mode is null** (Gemini "Default" mode stores as null) or the match silently fails.
-6. ⏳ **Structure dry-run:** create a trivial task ("add a `capitalize(str)`
-   function to `src/strings.js`"), move it to Draft, confirm Claude drafts a plan
-   and it saves via `create_task_plan_kandev`, and that it can call
-   `move_task_kandev` to reach Review · Gemini.
-7. ⏳ **Reject-loop test:** feed a deliberately weak spec; confirm Gemini rejects,
-   the rationale lands in the plan, and the task returns to Draft with an
-   incremented `Revision round`.
-8. ⏳ **Happy path:** one task end-to-end through merge; confirm worktree, PR, archive.
-9. ⏳ **Codex enablement:** separate session, after the ChatGPT-plan / API-key
-   decision. Install `codex`; `npm i -g <codex acp adapter>` if the §2.2 failure
-   recurs; create the `codex-review` profile; re-import the workflow (delete first —
-   import skips existing names) or add the profile to step 2 via the UI.
+6. ✅ **Structure dry-run** — `capitalize(str)` task ran Draft → review → merge
+   (PR #1). `create_task_plan_kandev` / `move_task_kandev` all worked.
+7. ✅ **Reject-loop test** — proven twice: the truncate-string design doc (PR #2)
+   did a real reject → redraft → approve loop; the first real feature build did
+   three Draft ↔ Review-Spec rounds. Rationale landed in the plan each time; the
+   round counter held.
+8. ✅ **Happy path** — the HTTP-method-hygiene feature ran the full pipeline
+   end-to-end into a merged PR (#17 on the epglum repo): worktree isolation, 13
+   commits, 135-test suite green at Test and re-run at Code Review, human gate,
+   PR. Archive-after-168h confirmed on the Done step.
+9. ⏳ **Codex enablement** — still deferred (needs a ChatGPT paid plan or API-key
+   top-up). The `Review - Codex` step is now an explicit reserved no-agent slot
+   (see §13.2), so nothing routes into it until a profile is attached. When ready:
+   install `codex`, `npm i -g <codex acp adapter>` if the §2.2 failure recurs,
+   attach a `codex-review` profile to the step, and set its `on_enter` to
+   `[reset_agent_context, auto_start_agent]`.
 
 ---
 
@@ -384,3 +394,138 @@ needs. `reset_agent_context` is added where §5 requires it.
   Hard Parts* (Ford/Richards). The chosen book may change — Sharif will confirm.
   Source from local files and public online libraries.
 - **Copy `clean-code` into `~/.gemini/skills/`** if Gemini's role expands to code review.
+
+---
+
+## 13. Build reality (2026-08-30)
+
+Both workflows — **Feature Delivery** and its sibling **Design Doc** (§12, now
+built) — have run real work end to end. This section records where the build
+diverged from §1–§12 and what is still open.
+
+### 13.1 Proven
+
+- **Design Doc** workflow: idea → drafted doc in the plan → independent review →
+  reject/redraft loop → human approval → committed as a PR. Shipped the
+  HTTP-method-hygiene design doc (epglum PR #16).
+- **Feature Delivery** workflow: approved doc → task spec → spec review loop →
+  implement (TDD, 13 commits) → cold test (135-test suite) → independent code
+  review (suite re-run) → human diff gate → PR. Shipped epglum PR #17.
+- Worktree isolation, the durable-plan-as-source-of-truth pattern, the round
+  counter, `reset_agent_context` independence, and the human gates all behaved
+  as designed.
+
+### 13.2 Divergences from §1–§12
+
+| § | Said | Actually |
+| --- | --- | --- |
+| §2 | `kandev` runs on port **7317** | The backend binds a **free port each `kandev run`** (e.g. 38429). Find it in the run log (`[kandev] open: http://localhost:PORT`). `ops/` scripts take `--url`. |
+| §3, §6, §8, §11.5 | Step `[3]` runs **Gemini** (`gemini-review`) | Runs a **fresh Claude session**. Gemini/Codex are deferred — the workspace is Claude-only for now. Step `[3]` is the slot a second vendor swaps into. |
+| §3, §10.1 | Step `[2]` "Review · Codex", disabled via a profile switch | Step `[2]` is a **reserved no-agent placeholder**: no `agent_profile`, prompt says "not active", `on_turn_start: move_to_next` guard (see §13.6). The Draft step routes straight past it. Activate by attaching a profile + `on_enter: [reset_agent_context, auto_start_agent]` and dropping the guard. |
+| §10.4 | `[8] Integrate` runs `gh pr create` **and `gh pr merge`** | Integrate **never merges**. It runs formatters, pushes, opens a PR against the task's base branch, records the URL, and moves to Done. Every PR is merged by a human. (Same for Design Doc's Commit Doc step.) |
+| §1, §12 | Docs live at `docs/specs/<feature>.md` | The workflows **detect** the repo's design-doc dir — an existing `docs/**/specs/` (e.g. epglum uses `docs/superpowers/specs/`), else `docs/specs/` — and match its filename convention. |
+| §4 (Code Review) | diff against the repo default branch | Diff against the **task's base branch**. The repo default (`main`) can be ~1250 commits behind the real base (`dev`); diffing against it pulls in unrelated files. |
+| §11.5 | Re-export verifies live workflow == YAML | **Import skips workflows whose name already exists**, so the running steps drift from the YAML. After editing a YAML, sync each live step's `prompt`/`events` with `update_workflow_step_kandev` (it does **not** accept `agent_profile` — agent bindings are UI-only), or delete + re-import when no task history matters. |
+
+### 13.3 The session-limit problem, and `ops/`
+
+A Claude session limit (5-hour rolling window) frequently kills a workflow agent
+mid-turn. The agent dies without handing off; the task sits at its step; the next
+Claude session has lost all in-memory context. During the first real feature
+build this happened ~5 times over two days.
+
+Mitigations, all in **`ops/`** (committed to this repo, not `/tmp`, so they
+survive the limit):
+
+- **`ops/kandev-mcp.py`** — minimal Kandev MCP client for the shell.
+- **`ops/resume-driver.py`** — self-driving monitor for one task. Polls it; on a
+  rate-limit death it parses the stated reset time, waits, then re-triggers the
+  task (bounce to Backlog, then forward with a "continue, don't restart" prompt —
+  a same-step move does not re-fire an agent, the Backlog bounce does). Restarts
+  the backend if it died. Exits at a human gate / Done. Runs only while its shell
+  lives — a stopgap until Kandev runs as a real service.
+- **`ops/runs/<slug>.md`** — one per in-flight feature: task id, workflow id,
+  branch, worktree, current state, next action. Git-ignored. **Deleted when the
+  feature ships** — the merged PR and git history are the record.
+
+To re-trigger by hand: `move_task_kandev` to **Backlog**, wait ~4s, then
+`move_task_kandev` to the target step with a "CONTINUE, do not restart, re-read
+the plan and `git log`" prompt.
+
+### 13.4 Still open
+
+- **§10.5 `notify` target** — never configured. Human Review / Needs Human depend
+  on someone watching the board. (Kandev Settings → Notifications; UI-only.)
+- **§11.9 Codex** — deferred, blocked on external (paid plan / API key). Slot
+  ready. Not a gap in our own work.
+- **§12 `clean-code` → `~/.gemini/skills/`** — not copied (only needed if Gemini
+  does code review; we are Claude-only).
+
+### 13.5 Closed 2026-08-30
+
+- **Kandev as a persistent service** — ✅ `kandev service install --port 38429`
+  (systemd `--user` unit at `~/.config/systemd/user/kandev.service`,
+  `Restart=on-failure`, fixed port 38429 so `ops/` scripts no longer discover it).
+  Survives crashes and the 5-hour-limit agent deaths. **One manual step left for
+  Sharif**: `sudo loginctl enable-linger sharif` so it also survives logout
+  (needs a password; can't be done non-interactively).
+- **§12 `architecture-review`** — ✅ no longer a bare stub. Two `book-to-skill`
+  knowledge bases now back it, in `~/.claude/skills/` and `~/.gemini/skills/`:
+  - **`kleppmann-data-intensive`** — *Designing Data-Intensive Applications*
+    (Kleppmann, 2017). 12 chapter files + glossary/patterns/cheatsheet.
+  - **`burns-distributed-systems`** — *Designing Distributed Systems* (Burns,
+    2018). 13 chapter files + glossary/patterns/cheatsheet.
+  `architecture-review/SKILL.md` now points checks 2 (trade-offs) and 4
+  (second-order effects) at these for data/distributed-systems specifics. The
+  five-check lens itself is unchanged.
+
+### 13.6 Workflow bug fixed 2026-08-30 — agents blowing past steps
+
+**Symptom.** The F2 Design Doc task, after a session-limit re-trigger, ran the
+Draft Doc step and then jumped straight to **Done** — skipping Review-Design,
+Human Approval, and Commit Doc, and never opening a PR. The Draft Doc agent also
+wrote+committed a file despite that step being plan-mode.
+
+**Root cause.** Both workflows relied *entirely* on the agent obeying the prompt
+("call `move_task_kandev` once, then STOP") — there was **no structural
+transition control**. Kandev's own `Development` template shows the mechanism we
+were missing: `on_turn_start` / `on_turn_complete` step events
+(`move_to_next` / `move_to_previous` / `move_to_step`). A trigger: a hand-written
+resume `prompt` that told the plan-mode Draft step to "write the design doc to
+`<path>`" — a step-contradicting instruction the agent then over-followed.
+
+**Fix — attempt 1 (`on_turn_start` guards) — REVERTED, it broke the happy path.**
+Added `on_turn_start: move_to_previous` / `move_to_step` to every no-agent step
+(`Review - Codex`, `Human Approval`/`Human Review`, `Done`, `Needs Human`), copying
+Kandev's `Development` template. Wrong: **`on_turn_start` fires on the deferred-move
+*arrival*, while the moving agent's session is still bound — not only on a spurious
+`auto_start_agent`.** Observed live on the F2 *build* (2026-08-30 16:14): Code
+Review passed and correctly moved the task to Human Review; ~0.5 s later the
+`on_turn_start` guard bounced it straight back to Code Review, where it sat idle
+(`WAITING_FOR_INPUT`) — a bounce loop on every correct hand-off to a gate, and
+`Done`/`Needs Human` would have looped back to `Draft`. All four guards removed
+from both workflows; F2 build manually moved to Human Review (stays put now).
+
+**Fix — what actually stands (attempt 2):**
+
+1. **MOVEMENT DISCIPLINE block** prepended to every agent step prompt and added
+   to the workflow-level navigation prompt: only ever move to the target named in
+   *this* step's prompt; never ≥2 steps ahead; never `Done`/`Commit Doc`/
+   `Integrate`/`Needs Human` unless named; if unsure, stop with no move; a
+   handoff/resume note never adds work or overrides the step; plan-mode steps
+   never write files regardless of what a note says. *(One stale line in that
+   block still says "the workflow will bounce the task back" — no longer true
+   after the revert; harmless, fix on next prompt pass.)*
+2. **`ops/resume-driver.py`** re-trigger prompt tightened to "follow THIS step's
+   prompt, this note adds nothing"; **`ops/README.md`** documents that a manual
+   re-trigger prompt must never name a file or a cross-step action. This was the
+   actual trigger of the original Design-Doc incident.
+
+**Residual gap.** Structural enforcement is back to zero — the workflow trusts
+agents to obey the prompt. The original Design-Doc incident is now unlikely
+(bad resume prompt fixed + MOVEMENT DISCIPLINE), and on the F2 build the agents
+moved one step at a time exactly as told. The real structural fix — linear steps
+using `on_turn_complete: move_to_step` so the agent has *no* say in the
+destination, `on_turn_start` used *only* on `Review - Codex` where forwarding is
+desired — needs `auto_advance_requires_signal` + the runtime step-complete signal
+and a full-cycle test rig. Deferred.

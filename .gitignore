@@ -1,2 +1,7 @@
 node_modules/
 *.log
+
+# ops: per-feature run files are local operational state, not history
+ops/runs/*
+!ops/runs/_template.md
+ops/__pycache__/

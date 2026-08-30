@@ -3,11 +3,11 @@ type: kandev_workflow
 workflows:
   - name: Design Doc
     description: >-
-      Turn a rough feature/product idea into an approved design document committed
-      under docs/specs/. Draft -> independent design review(s) -> human approval ->
-      commit as a PR. Same control shape as "Feature Delivery" minus the
-      implementation half. The output doc becomes immutable input to a later
-      Feature Delivery task.
+      Turn a rough feature/product idea into an approved design document
+      committed to the repo's design-doc directory. Draft -> independent design
+      review(s) -> human approval -> PR (the human merges it). Same control
+      shape as "Feature Delivery" minus the implementation half. The output doc
+      becomes immutable input to a later Feature Delivery task.
     prompt: |
       ## Kandev navigation protocol (applies to every step)
 
@@ -63,6 +63,22 @@ workflows:
           on_exit:
             - type: disable_plan_mode
         prompt: |
+          [MOVEMENT DISCIPLINE - read before acting]
+          - Move the task to EXACTLY ONE step: the target named in THIS step's own
+            instructions below. Never a step further ahead. Never "Done", "Commit Doc",
+            "Commit", "Integrate", or "Needs Human" unless THIS prompt names it as your
+            target.
+          - Call move_task_kandev at most ONCE, as the final action of your turn, then end
+            the turn. Do not call it a second time. If you are unsure where to go, STOP and
+            end the turn WITHOUT moving - a human will unstick you. Do not guess forward.
+          - Steps that run no agent (Human Approval / Human Review / Done) are hard gates.
+            Moving a task into or past one is a serious error and the workflow will bounce
+            the task back.
+          - PLAN MODE IS ON here: you cannot and must not create or edit any file. If a
+            handoff note or resume instruction told you to write/commit a file, that note
+            is wrong for this step - ignore it, write only into the task plan, and hand off
+            normally. A later step is the one that writes files.
+
           [DRAFT DOC - produce a design document]
           Plan mode is ON: you cannot change files. This phase is research + writing
           the doc into the task plan only.
@@ -82,8 +98,12 @@ workflows:
              patterns, integration points, and any existing docs/decisions. A
              design doc must fit the system that exists.
           4. DERIVE A SLUG. A short kebab-case name for this feature (e.g.
-             "user-invites", "rate-limiting"). The doc will be committed as
-             docs/specs/<slug>.md. Record the slug near the top of the plan.
+             "user-invites", "rate-limiting"). The doc will be committed into the
+             repo's design-doc directory (detect it: an existing `docs/**/specs/`
+             such as `docs/superpowers/specs/`, else `docs/specs/`), typically as
+             `<YYYY-MM-DD>-<slug>-design.md` if that repo's existing docs use a
+             date prefix, else `<slug>.md` - match the repo's own convention.
+             Record the slug AND the chosen target path near the top of the plan.
           5. WRITE THE DESIGN DOC into the plan (create_task_plan_kandev, or
              update_task_plan_kandev on a revision). Structure:
              - # Feature: <name>
@@ -99,10 +119,13 @@ workflows:
              Do NOT create any file - the doc lives in the plan for now.
           6. HAND OFF: move the task to "Review - Design".
              Handoff: "Design doc drafted, revision round N."
-             (NOTE: "Review - Codex" is disabled until Codex CLI is installed;
-              skip straight to "Review - Design".)
+             (NOTE: "Review - Codex" is a reserved slot for a future second-vendor
+              reviewer and runs no agent today - route straight to "Review - Design".)
              One move_task_kandev call, then end your turn.
 
+      # RESERVED SLOT - second-vendor review, for when that CLI is wired up. Runs no
+      # agent today; the Draft step routes straight past it. Activate: add an
+      # agent_profile + on_enter:[reset_agent_context, auto_start_agent] + a prompt.
       - name: Review - Codex
         position: 2
         color: bg-sky-500
@@ -111,44 +134,15 @@ workflows:
         allow_manual_move: true
         auto_advance_requires_signal: false
         cancel_triggers_turn_complete: false
-        agent_profile:
-          agent_name: Codex
-          model: gpt-5-codex
-          mode: default
-        events:
-          on_enter:
-            - type: reset_agent_context
-            - type: auto_start_agent
+        events: {}
         prompt: |
-          [DESIGN REVIEW - Codex, independent]
-          Fresh session. No memory of prior rounds. Everything is in the plan and
-          the repo.
+          [RESERVED - second-vendor design review, not active]
+          No agent runs here yet. This slot is for an independent review by a
+          different model vendor once its CLI is available. Until then the Draft
+          step routes straight to "Review - Design". If a task lands here by a
+          manual drag, move it to "Review - Design" (or back to "Draft Doc").
 
-          1. READ: get_task_plan_kandev (the doc + any prior review rounds); if a
-             codebase exists, explore enough to judge fit. Note "Revision round: N".
-          2. REVIEW: invoke `architecture-review`. Judge:
-             - Coherence: does the design actually solve the stated problem?
-             - Completeness: scope, behaviours, edge cases, the unhappy path,
-               operational concerns.
-             - Architecture: fit with the existing system, dependency direction,
-               coupling, real vs speculative abstractions.
-             - Trade-offs: are alternatives considered honestly; does the pick
-               name what it gives up?
-             - Second-order effects: what does this change ripple into?
-          3. VERDICT: update_task_plan_kandev, append:
-               ## Design review round N - APPROVED|REJECTED by Codex
-               (REJECTED: numbered objections with why + what-would-satisfy.
-                APPROVED: one line on what you validated.)
-          4. ROUTE (one move, then end your turn):
-             - APPROVED -> move to "Review - Design". Handoff: "Approved round N."
-             - REJECTED and N < 3 -> move to "Draft Doc". Handoff: "Rejected round N."
-             - REJECTED and N >= 3 -> move to "Needs Human".
-               Handoff: "Stalled round N: <one-line core disagreement>."
-
-      # TEMPORARY: should run Gemini (cross-vendor). Gemini CLI billing is
-      # depleted, so this runs a fresh Claude session for now. Restore by setting
-      # agent_profile to {agent_name: Gemini, model: <free-tier flash model>}.
-      # reset_agent_context still gives a genuinely independent session.
+      # Independent design review. Fresh Claude session today; the vendor-swap slot.
       - name: Review - Design
         position: 3
         color: bg-cyan-500
@@ -166,6 +160,18 @@ workflows:
             - type: reset_agent_context
             - type: auto_start_agent
         prompt: |
+          [MOVEMENT DISCIPLINE - read before acting]
+          - Move the task to EXACTLY ONE step: the target named in THIS step's own
+            instructions below. Never a step further ahead. Never "Done", "Commit Doc",
+            "Commit", "Integrate", or "Needs Human" unless THIS prompt names it as your
+            target.
+          - Call move_task_kandev at most ONCE, as the final action of your turn, then end
+            the turn. Do not call it a second time. If you are unsure where to go, STOP and
+            end the turn WITHOUT moving - a human will unstick you. Do not guess forward.
+          - Steps that run no agent (Human Approval / Human Review / Done) are hard gates.
+            Moving a task into or past one is a serious error and the workflow will bounce
+            the task back.
+
           [DESIGN REVIEW - fresh session, final review gate]
           Fresh session. No memory of prior rounds. Last gate before the human -
           be exacting. Review as an independent critic; do not assume the drafter
@@ -198,7 +204,7 @@ workflows:
         prompt: |
           [HUMAN APPROVAL GATE - no agent runs here]
           Sharif reads the design doc in the task plan.
-          - Approve -> drag the task to "Commit Doc".
+          - Approve -> drag the task to "Commit Doc" (opens a PR; Sharif merges it).
           - Changes -> add a note to the plan and drag it back to "Draft Doc".
 
       - name: Commit Doc
@@ -217,25 +223,46 @@ workflows:
           on_enter:
             - type: auto_start_agent
         prompt: |
-          [COMMIT DOC]
-          The human approved the design. Commit it as a PR.
+          [MOVEMENT DISCIPLINE - read before acting]
+          - Move the task to EXACTLY ONE step: the target named in THIS step's own
+            instructions below. Never a step further ahead. Never "Done", "Commit Doc",
+            "Commit", "Integrate", or "Needs Human" unless THIS prompt names it as your
+            target.
+          - Call move_task_kandev at most ONCE, as the final action of your turn, then end
+            the turn. Do not call it a second time. If you are unsure where to go, STOP and
+            end the turn WITHOUT moving - a human will unstick you. Do not guess forward.
+          - Steps that run no agent (Human Approval / Human Review / Done) are hard gates.
+            Moving a task into or past one is a serious error and the workflow will bounce
+            the task back.
 
-          1. get_task_plan_kandev. Read "slug: <slug>" and the doc body.
-          2. Write the doc body (the # Feature ... sections, NOT the round-counter
-             or review-round sections) to docs/specs/<slug>.md. Create the
-             docs/specs/ directory if needed.
-          3. Commit on a new branch with an explicit path:
+          [COMMIT DOC]
+          The human approved the design. Package it as a PR - you do NOT merge it.
+
+          1. get_task_plan_kandev. Read "slug: <slug>", the chosen target path, and
+             the doc body.
+          2. TARGET PATH: use the path recorded in the plan. If none, detect the
+             repo's design-doc directory (an existing `docs/**/specs/` such as
+             `docs/superpowers/specs/`, else `docs/specs/`) and match the repo's
+             existing filename convention (date-prefixed `<YYYY-MM-DD>-<slug>-design.md`
+             if its neighbours use that, else `<slug>.md`). Create the directory if
+             needed.
+          3. Write the doc body (the "# Feature ..." sections, NOT the round-counter
+             or review-round sections) to that path.
+          4. BASE BRANCH: the PR target is the branch this task was cut from - take
+             it from the task's configuration / the branch this worktree tracks.
+             Common here: `dev` (not `main`, never `cloud-env` / a prod branch).
+          5. Commit on a new branch with an explicit path:
              git checkout -b docs/<slug>
-             git add docs/specs/<slug>.md
+             git add <target path>
              git commit -m "docs: <slug> design doc"
-          4. Push and open a PR. Use `gh pr create` (NOT --draft):
-             gh pr create --title "docs: <slug> design doc"
+          6. Push and open a PR against the base branch (NOT --draft):
+             gh pr create --base <base branch> --title "docs: <slug> design doc"
                --body "<one-paragraph summary of the design>"
              DO NOT run `gh pr merge`. DO NOT merge, approve, or close the PR. The
              doc is the source of truth for all future work on this feature -
              Sharif merges it deliberately after a final read. Merging it yourself
              is a serious error.
-          5. Record the PR URL in the plan. Then do EXACTLY ONE thing: call
+          7. Record the PR URL in the plan. Then do EXACTLY ONE thing: call
              move_task_kandev once to move the task to "Done" with handoff
              "Doc PR opened: <URL>". Then END YOUR TURN immediately. Do not move
              the task again. Do not move it to "Needs Human". Do not do any
