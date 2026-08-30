@@ -455,11 +455,26 @@ the plan and `git log`" prompt.
 ### 13.4 Still open
 
 - **§10.5 `notify` target** — never configured. Human Review / Needs Human depend
-  on someone watching the board.
-- **§11.9 Codex** — deferred (paid plan / API key). Slot ready.
-- **§12 `architecture-review`** — still the ~92-line stub in `~/.claude/skills/`
-  and `~/.gemini/skills/`; no `book-to-skill` conversion yet (book TBD).
+  on someone watching the board. (Kandev Settings → Notifications; UI-only.)
+- **§11.9 Codex** — deferred, blocked on external (paid plan / API key). Slot
+  ready. Not a gap in our own work.
 - **§12 `clean-code` → `~/.gemini/skills/`** — not copied (only needed if Gemini
-  does code review).
-- **Kandev as a persistent service** — currently started by hand from a terminal
-  session; dies with it. Being worked separately.
+  does code review; we are Claude-only).
+
+### 13.5 Closed 2026-08-30
+
+- **Kandev as a persistent service** — ✅ `kandev service install --port 38429`
+  (systemd `--user` unit at `~/.config/systemd/user/kandev.service`,
+  `Restart=on-failure`, fixed port 38429 so `ops/` scripts no longer discover it).
+  Survives crashes and the 5-hour-limit agent deaths. **One manual step left for
+  Sharif**: `sudo loginctl enable-linger sharif` so it also survives logout
+  (needs a password; can't be done non-interactively).
+- **§12 `architecture-review`** — ✅ no longer a bare stub. Two `book-to-skill`
+  knowledge bases now back it, in `~/.claude/skills/` and `~/.gemini/skills/`:
+  - **`kleppmann-data-intensive`** — *Designing Data-Intensive Applications*
+    (Kleppmann, 2017). 12 chapter files + glossary/patterns/cheatsheet.
+  - **`burns-distributed-systems`** — *Designing Distributed Systems* (Burns,
+    2018). 13 chapter files + glossary/patterns/cheatsheet.
+  `architecture-review/SKILL.md` now points checks 2 (trade-offs) and 4
+  (second-order effects) at these for data/distributed-systems specifics. The
+  five-check lens itself is unchanged.
