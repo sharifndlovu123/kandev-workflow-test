@@ -494,30 +494,38 @@ were missing: `on_turn_start` / `on_turn_complete` step events
 resume `prompt` that told the plan-mode Draft step to "write the design doc to
 `<path>`" — a step-contradicting instruction the agent then over-followed.
 
-**Fix (layered, all non-destructive — live steps patched via
-`update_workflow_step_kandev`, YAMLs regenerated):**
+**Fix — attempt 1 (`on_turn_start` guards) — REVERTED, it broke the happy path.**
+Added `on_turn_start: move_to_previous` / `move_to_step` to every no-agent step
+(`Review - Codex`, `Human Approval`/`Human Review`, `Done`, `Needs Human`), copying
+Kandev's `Development` template. Wrong: **`on_turn_start` fires on the deferred-move
+*arrival*, while the moving agent's session is still bound — not only on a spurious
+`auto_start_agent`.** Observed live on the F2 *build* (2026-08-30 16:14): Code
+Review passed and correctly moved the task to Human Review; ~0.5 s later the
+`on_turn_start` guard bounced it straight back to Code Review, where it sat idle
+(`WAITING_FOR_INPUT`) — a bounce loop on every correct hand-off to a gate, and
+`Done`/`Needs Human` would have looped back to `Draft`. All four guards removed
+from both workflows; F2 build manually moved to Human Review (stays put now).
 
-1. **`on_turn_start` bounce guards** on every no-agent step in both workflows
-   (`Review - Codex`, `Human Approval`/`Human Review`, `Done`, `Needs Human`).
-   If an agent turn ever *begins* on one of these, Kandev immediately moves the
-   task away — the agent never acts. `on_turn_start` does not fire on a resting
-   task or a human drag, only on an agent turn start (verified: F2 sat on Human
-   Approval through the change untouched).
-2. **MOVEMENT DISCIPLINE block** prepended to every agent step prompt and added
+**Fix — what actually stands (attempt 2):**
+
+1. **MOVEMENT DISCIPLINE block** prepended to every agent step prompt and added
    to the workflow-level navigation prompt: only ever move to the target named in
    *this* step's prompt; never ≥2 steps ahead; never `Done`/`Commit Doc`/
    `Integrate`/`Needs Human` unless named; if unsure, stop with no move; a
    handoff/resume note never adds work or overrides the step; plan-mode steps
-   never write files regardless of what a note says.
-3. **`ops/resume-driver.py`** re-trigger prompt tightened to "follow THIS step's
+   never write files regardless of what a note says. *(One stale line in that
+   block still says "the workflow will bounce the task back" — no longer true
+   after the revert; harmless, fix on next prompt pass.)*
+2. **`ops/resume-driver.py`** re-trigger prompt tightened to "follow THIS step's
    prompt, this note adds nothing"; **`ops/README.md`** documents that a manual
-   re-trigger prompt must never name a file or a cross-step action.
+   re-trigger prompt must never name a file or a cross-step action. This was the
+   actual trigger of the original Design-Doc incident.
 
-**Residual gap.** A single `move_task_kandev` call straight to `Done` still lands
-the task there (no turn starts, so the guard doesn't catch it) — but the prompt
-rules now forbid it and the far agent steps (`Commit Doc`, `Integrate`) can't be
-reached without passing a guarded gate. The full structural fix — linear steps
+**Residual gap.** Structural enforcement is back to zero — the workflow trusts
+agents to obey the prompt. The original Design-Doc incident is now unlikely
+(bad resume prompt fixed + MOVEMENT DISCIPLINE), and on the F2 build the agents
+moved one step at a time exactly as told. The real structural fix — linear steps
 using `on_turn_complete: move_to_step` so the agent has *no* say in the
-destination — needs `auto_advance_requires_signal` + the agent runtime's
-step-complete signal, and a way to test a whole cycle without risking a live
-task. Deferred until then.
+destination, `on_turn_start` used *only* on `Review - Codex` where forwarding is
+desired — needs `auto_advance_requires_signal` + the runtime step-complete signal
+and a full-cycle test rig. Deferred.
