@@ -421,7 +421,7 @@ diverged from §1–§12 and what is still open.
 | --- | --- | --- |
 | §2 | `kandev` runs on port **7317** | The backend binds a **free port each `kandev run`** (e.g. 38429). Find it in the run log (`[kandev] open: http://localhost:PORT`). `ops/` scripts take `--url`. |
 | §3, §6, §8, §11.5 | Step `[3]` runs **Gemini** (`gemini-review`) | Runs a **fresh Claude session**. Gemini/Codex are deferred — the workspace is Claude-only for now. Step `[3]` is the slot a second vendor swaps into. |
-| §3, §10.1 | Step `[2]` "Review · Codex", disabled via a profile switch | Step `[2]` is a **reserved no-agent placeholder**: no `agent_profile`, empty `events`, prompt says "not active". The Draft step routes straight past it. Activate by attaching a profile + `on_enter: [reset_agent_context, auto_start_agent]`. |
+| §3, §10.1 | Step `[2]` "Review · Codex", disabled via a profile switch | Step `[2]` is a **reserved no-agent placeholder**: no `agent_profile`, prompt says "not active", `on_turn_start: move_to_next` guard (see §13.6). The Draft step routes straight past it. Activate by attaching a profile + `on_enter: [reset_agent_context, auto_start_agent]` and dropping the guard. |
 | §10.4 | `[8] Integrate` runs `gh pr create` **and `gh pr merge`** | Integrate **never merges**. It runs formatters, pushes, opens a PR against the task's base branch, records the URL, and moves to Done. Every PR is merged by a human. (Same for Design Doc's Commit Doc step.) |
 | §1, §12 | Docs live at `docs/specs/<feature>.md` | The workflows **detect** the repo's design-doc dir — an existing `docs/**/specs/` (e.g. epglum uses `docs/superpowers/specs/`), else `docs/specs/` — and match its filename convention. |
 | §4 (Code Review) | diff against the repo default branch | Diff against the **task's base branch**. The repo default (`main`) can be ~1250 commits behind the real base (`dev`); diffing against it pulls in unrelated files. |
@@ -478,3 +478,46 @@ the plan and `git log`" prompt.
   `architecture-review/SKILL.md` now points checks 2 (trade-offs) and 4
   (second-order effects) at these for data/distributed-systems specifics. The
   five-check lens itself is unchanged.
+
+### 13.6 Workflow bug fixed 2026-08-30 — agents blowing past steps
+
+**Symptom.** The F2 Design Doc task, after a session-limit re-trigger, ran the
+Draft Doc step and then jumped straight to **Done** — skipping Review-Design,
+Human Approval, and Commit Doc, and never opening a PR. The Draft Doc agent also
+wrote+committed a file despite that step being plan-mode.
+
+**Root cause.** Both workflows relied *entirely* on the agent obeying the prompt
+("call `move_task_kandev` once, then STOP") — there was **no structural
+transition control**. Kandev's own `Development` template shows the mechanism we
+were missing: `on_turn_start` / `on_turn_complete` step events
+(`move_to_next` / `move_to_previous` / `move_to_step`). A trigger: a hand-written
+resume `prompt` that told the plan-mode Draft step to "write the design doc to
+`<path>`" — a step-contradicting instruction the agent then over-followed.
+
+**Fix (layered, all non-destructive — live steps patched via
+`update_workflow_step_kandev`, YAMLs regenerated):**
+
+1. **`on_turn_start` bounce guards** on every no-agent step in both workflows
+   (`Review - Codex`, `Human Approval`/`Human Review`, `Done`, `Needs Human`).
+   If an agent turn ever *begins* on one of these, Kandev immediately moves the
+   task away — the agent never acts. `on_turn_start` does not fire on a resting
+   task or a human drag, only on an agent turn start (verified: F2 sat on Human
+   Approval through the change untouched).
+2. **MOVEMENT DISCIPLINE block** prepended to every agent step prompt and added
+   to the workflow-level navigation prompt: only ever move to the target named in
+   *this* step's prompt; never ≥2 steps ahead; never `Done`/`Commit Doc`/
+   `Integrate`/`Needs Human` unless named; if unsure, stop with no move; a
+   handoff/resume note never adds work or overrides the step; plan-mode steps
+   never write files regardless of what a note says.
+3. **`ops/resume-driver.py`** re-trigger prompt tightened to "follow THIS step's
+   prompt, this note adds nothing"; **`ops/README.md`** documents that a manual
+   re-trigger prompt must never name a file or a cross-step action.
+
+**Residual gap.** A single `move_task_kandev` call straight to `Done` still lands
+the task there (no turn starts, so the guard doesn't catch it) — but the prompt
+rules now forbid it and the far agent steps (`Commit Doc`, `Integrate`) can't be
+reached without passing a guarded gate. The full structural fix — linear steps
+using `on_turn_complete: move_to_step` so the agent has *no* say in the
+destination — needs `auto_advance_requires_signal` + the agent runtime's
+step-complete signal, and a way to test a whole cycle without risking a live
+task. Deferred until then.

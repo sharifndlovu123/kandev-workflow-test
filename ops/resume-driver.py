@@ -151,8 +151,11 @@ def main():
                   "CONTINUE - the previous turn was killed by an account session limit "
                   "(now reset), not by any problem. Do NOT restart. Re-read the task plan, "
                   "`git log`, `git status`, `git diff` in the worktree to find exactly "
-                  "where you are, then resume. Hand off to the next step only when this "
-                  "step's work is fully done."}, url)
+                  "where you are, then resume. Follow THIS step's own prompt exactly - "
+                  "this resume note adds no new instructions and overrides nothing. Do "
+                  "only this step's work, do not do work that belongs to another step, "
+                  "and hand off (one move_task_kandev call) only when this step is fully "
+                  "done."}, url)
 
     prev = None
     while True:
