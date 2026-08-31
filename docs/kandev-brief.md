@@ -19,9 +19,14 @@ codebase**.
   per-task git worktrees under `~/.kandev/tasks/<slug>_<hash>/` (currently empty).
 - After a hard kill: `rm -f ~/.kandev/.kandev-backend.lock` before restart.
 - Workspace id: `692988fd-8e4f-45b4-934e-0c608e10cd40` (the only one).
-- Agent profile: **`claude-build`** = `a8993fd1-e8d3-41b3-806c-81936a54b24d` (agent `claude-acp`
-  `b5a7639d…`), model `sonnet`, mode `acceptEdits`, `auto_approve: true`, `capability_status: ok`.
-  Gemini / Codex are **not** wired up — everything is Claude-only today.
+- Agent profiles:
+  - **`claude-build`** = `a8993fd1-e8d3-41b3-806c-81936a54b24d` (agent `claude-acp` `b5a7639d…`),
+    model `sonnet`, mode `acceptEdits`, `auto_approve: true`. Drives every Claude step.
+  - **`codex-review`** = `0251a285-e68d-4167-b88b-4d3b2435dfcf` (agent `codex-acp`
+    `f2905613…`), model `gpt-5.6-sol`, mode `agent`. Drives the `Review - Codex` step in
+    both workflows (2026-08-31). Codex CLI: `npm i -g @openai/codex` + `@agentclientprotocol/codex-acp`
+    (see the workflow-exploration memory for the probe fix); auth is ChatGPT-plan (`codex login`).
+  - Gemini (`gemini` agent) is installed/probed `ok` but not used by either workflow.
 
 ## This repo
 
@@ -70,31 +75,34 @@ Worktree executor profile: `5b235590-0ebb-46f3-8a9e-f413346a9d84`.
 
 ### Design Doc — `6fbfa90f-a831-4d49-994c-be8561b09a3d` (8 steps)
 
-Backlog → **Draft Doc** (plan-mode; writes the design doc into the task plan) → *Review - Codex*
-(reserved, no agent — routed past) → **Review - Design** (`reset_agent_context`; reject loop,
-cap 3) → **Human Approval** (no-agent gate) → **Commit Doc** (writes the doc to the repo's
-design-doc dir, opens a PR, **does not merge**) → Done → Needs Human.
+Backlog → **Draft Doc** (plan-mode; writes the design doc into the task plan) → **Review - Design**
+(`reset_agent_context`; fresh Claude, soundness/completeness lens) → **Review - Codex**
+(`reset_agent_context`; fresh Codex, approach/risk lens) → **Human Approval** (no-agent gate) →
+**Commit Doc** (writes the doc to the repo's design-doc dir, opens a PR, **does not merge**) →
+Done → Needs Human. Both reviews reject to **Draft Doc**; one shared round counter `N`, cap 3
+→ Needs Human.
 Output = an approved design doc, immutable input to a Feature Delivery task.
 
 ### Feature Delivery — `f3660f19-d30b-4b9a-8de6-df4cab942d0d` (11 steps)
 
-Backlog → **Draft** (plan-mode; task-level implementation spec) → *Review - Codex* (reserved) →
-**Review - Spec** (`reset_agent_context`; reject→Draft, cap 3) → **Implement** (TDD, commits) →
+Backlog → **Draft** (plan-mode; task-level implementation spec) → **Review - Spec**
+(`reset_agent_context`; fresh Claude, correctness/completeness lens) → **Review - Codex**
+(`reset_agent_context`; fresh Codex, approach/risk lens) → **Implement** (TDD, commits) →
 **Test** (cold, fresh session, runs the full suite) → **Code Review** (fresh; diffs vs the
 task's **base branch**, not the repo default) → **Human Review** (no-agent gate) → **Integrate**
 (formatters, push, `gh pr create --base <task base>`, **no merge**, move to Done) → Done → Needs
-Human.
-Two 3-round loops (spec, code). Assumes an approved design doc already exists in the repo.
+Human. Both spec reviews reject to **Draft** (shared counter `N`, cap 3). Assumes an approved
+design doc already exists in the repo.
 
 ### Step IDs
 
-Design Doc: Backlog `a5167f08` · Draft Doc `c6cf0503` · Review-Codex `a13d44ce` · Review-Design
-`0bd3d534` · Human Approval `91757f9e` · Commit Doc `04b01cfd` · Done `1cfe2f7a` · Needs Human
-`dfecab0c`.
+Design Doc (in order): Backlog `a5167f08` · Draft Doc `c6cf0503` · Review-Design `0bd3d534` ·
+Review-Codex `a13d44ce` · Human Approval `91757f9e` · Commit Doc `04b01cfd` · Done `1cfe2f7a` ·
+Needs Human `dfecab0c`.
 
-Feature Delivery: Backlog `4b8982fb` · Draft `4f2b4604` · Review-Codex `40bd92b2` · Review-Spec
-`f65d6b15` · Implement `8eb731d0` · Test `20c34f50` · Code Review `88044457` · Human Review
-`c2d0bea7` · Integrate `e1a70990` · Done `aa9d65ff` · Needs Human `e694bb7b`.
+Feature Delivery (in order): Backlog `4b8982fb` · Draft `4f2b4604` · Review-Spec `f65d6b15` ·
+Review-Codex `40bd92b2` · Implement `8eb731d0` · Test `20c34f50` · Code Review `88044457` ·
+Human Review `c2d0bea7` · Integrate `e1a70990` · Done `aa9d65ff` · Needs Human `e694bb7b`.
 
 ## Key mechanics & hard-won lessons
 
@@ -152,14 +160,20 @@ saves, backoffice htmx CSRF, finalised-application locks, dashboard tour step, c
 appeal/oppose backoffice list filter). Both features are on `dev`; `dev → cloud-env` (prod) is
 the human's next promotion.
 
-## Current status (2026-08-30)
+## Current status (2026-08-31)
 
 - Kandev consolidated: **`main` only, live instance == committed YAMLs, service healthy, all
   tasks archived, `~/.kandev/tasks/` empty.**
+- **Codex wired in as the second plan/spec reviewer** in both workflows. Order is now
+  Draft → Claude review → Codex review → next. `codex-review` profile bound to `Review -
+  Codex` in the UI (per-step agent binding is UI-only, not settable over MCP), set to
+  full-access. **Design Doc smoke test passed 2026-08-31** — Codex auto-started on the
+  step, read the plan, approved, routed to Human Approval, stopped at the gate. Feature
+  Delivery not separately tested (same review-step wiring).
 - `architecture-review` skill is now backed by two `book-to-skill` knowledge bases in
   `~/.claude/skills/` + `~/.gemini/skills/`: **`kleppmann-data-intensive`** (DDIA) and
   **`burns-distributed-systems`**.
 - Open / deferred (`§13.4` of the spec doc): `notify` target unconfigured (Human Review /
-  Needs Human rely on someone watching the board); Codex slot reserved-not-active (needs a paid
-  plan / API key); `clean-code` not copied to `~/.gemini/skills/` (Claude-only for now).
+  Needs Human rely on someone watching the board); `clean-code` not copied to
+  `~/.gemini/skills/`; Codex `auto_approve` would not flip via MCP (set it in the UI).
 - **Next: a "Kandev workflow upgrade"** — scope still being defined.

@@ -117,34 +117,14 @@ workflows:
              - ## Success criteria
              Put "Revision round: N" and "slug: <slug>" near the top.
              Do NOT create any file - the doc lives in the plan for now.
-          6. HAND OFF: move the task to "Review - Design".
-             Handoff: "Design doc drafted, revision round N."
-             (NOTE: "Review - Codex" is a reserved slot for a future second-vendor
-              reviewer and runs no agent today - route straight to "Review - Design".)
+          6. HAND OFF: move the task to "Review - Design" (the first of two
+             independent reviews: Claude on the doc's soundness, then Codex on the
+             approach). Handoff: "Design doc drafted, revision round N."
              One move_task_kandev call, then end your turn.
 
-      # RESERVED SLOT - second-vendor review, for when that CLI is wired up. Runs no
-      # agent today; the Draft step routes straight past it. Activate: add an
-      # agent_profile + on_enter:[reset_agent_context, auto_start_agent] + a prompt.
-      - name: Review - Codex
-        position: 2
-        color: bg-sky-500
-        is_start_step: false
-        show_in_command_panel: true
-        allow_manual_move: true
-        auto_advance_requires_signal: false
-        cancel_triggers_turn_complete: false
-        events: {}
-        prompt: |
-          [RESERVED - second-vendor design review, not active]
-          No agent runs here yet. This slot is for an independent review by a
-          different model vendor once its CLI is available. Until then the Draft
-          step routes straight to "Review - Design". If a task lands here by a
-          manual drag, move it to "Review - Design" (or back to "Draft Doc").
-
-      # Independent design review. Fresh Claude session today; the vendor-swap slot.
+      # First of two independent design reviews. Fresh Claude session; soundness lens.
       - name: Review - Design
-        position: 3
+        position: 2
         color: bg-cyan-500
         is_start_step: false
         show_in_command_panel: true
@@ -172,23 +152,91 @@ workflows:
             Moving a task into or past one is a serious error and the workflow will bounce
             the task back.
 
-          [DESIGN REVIEW - fresh session, final review gate]
-          Fresh session. No memory of prior rounds. Last gate before the human -
-          be exacting. Review as an independent critic; do not assume the drafter
-          got it right.
+          [DESIGN REVIEW - fresh session, first of two independent review gates]
+          Fresh session. No memory of prior rounds. You are the FIRST of two
+          independent reviewers (you, then Codex). Review as an independent critic;
+          do not assume the drafter got it right.
 
           1. READ: get_task_plan_kandev (doc + all prior review rounds); explore
              the codebase if one exists. Note "Revision round: N".
-          2. REVIEW: invoke `architecture-review`. Same dimensions as the Codex
-             review - coherence, completeness, architecture fit, trade-off honesty,
-             second-order effects. Also confirm every objection in earlier
-             "## Design review round" sections was actually resolved.
+          2. REVIEW: invoke `architecture-review`. Your lens is SOUNDNESS AND
+             COMPLETENESS (Codex takes the approach/risk lens next):
+             - internal coherence; the design actually solves the stated problem
+             - architecture fit against the system that exists
+             - completeness: every behaviour a concrete testable statement; edge
+               cases and failure paths named
+             - trade-off honesty: each approach's cost is stated, the pick is
+               justified
+             - every objection in earlier "## Design review round" sections is
+               actually resolved
           3. VERDICT: update_task_plan_kandev, append:
-               ## Design review round N - APPROVED|REJECTED by Design Review
+               ## Design review round N - APPROVED|REJECTED by Claude Design Review
                (REJECTED: numbered objections with why + fix. APPROVED: one line.)
           4. ROUTE (one move, then end your turn):
-             - APPROVED -> move to "Human Approval". Handoff: "Design approved, round N."
+             - APPROVED -> move to "Review - Codex". Handoff: "Claude design review
+               passed, round N."
              - REJECTED and N < 3 -> move to "Draft Doc". Handoff: "Rejected round N."
+             - REJECTED and N >= 3 -> move to "Needs Human".
+               Handoff: "Stalled round N: <one-line core disagreement>."
+
+      # Second, independent design review by a different vendor (Codex). Approach/risk
+      # lens; last gate before Human Approval. Bind the `codex-review` profile in the UI.
+      - name: Review - Codex
+        position: 3
+        color: bg-sky-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Codex
+          model: gpt-5.6-sol
+          mode: agent
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [MOVEMENT DISCIPLINE - read before acting]
+          - Move the task to EXACTLY ONE step: the target named in THIS step's own
+            instructions below. Never a step further ahead. Never "Done", "Commit Doc",
+            "Commit", "Integrate", or "Needs Human" unless THIS prompt names it as your
+            target.
+          - Call move_task_kandev at most ONCE, as the final action of your turn, then end
+            the turn. Do not call it a second time. If you are unsure where to go, STOP and
+            end the turn WITHOUT moving - a human will unstick you. Do not guess forward.
+          - Steps that run no agent (Human Approval / Human Review / Done) are hard gates.
+            Moving a task into or past one is a serious error and the workflow will bounce
+            the task back.
+
+          [CODEX DESIGN REVIEW - fresh session, second and final review gate]
+          Fresh session, different model vendor. Claude has already reviewed this
+          design doc and approved it. You are the SECOND, independent review and
+          the last gate before the human - be exacting. Do not assume Claude or the
+          drafter got it right.
+
+          Your lens is APPROACH AND RISK, not style:
+            - Is this the right approach at all? Name a materially simpler design
+              if one exists.
+            - Hidden or unstated assumptions the design depends on.
+            - Second-order effects: what else in the system this changes; failure
+              modes; rollout, migration, backward compatibility; scale.
+            - Scope creep vs the stated problem; speculative generality.
+            - Risks the drafter and the first reviewer both missed.
+
+          1. READ: get_task_plan_kandev (doc + all prior review rounds, including
+             "## Design review round N ... by Claude Design Review"); explore the
+             codebase if one exists. Note "Revision round: N".
+          2. REVIEW along the lens above.
+          3. VERDICT: update_task_plan_kandev, append:
+               ## Design review round N - APPROVED|REJECTED by Codex Design Review
+               (REJECTED: numbered objections with why + fix. APPROVED: one line.)
+          4. ROUTE (one move, then end your turn):
+             - APPROVED -> move to "Human Approval". Handoff: "Both design reviews
+               passed, round N."
+             - REJECTED and N < 3 -> move to "Draft Doc". Handoff: "Codex rejected
+               round N."
              - REJECTED and N >= 3 -> move to "Needs Human".
                Handoff: "Stalled round N: <one-line core disagreement>."
 

@@ -110,33 +110,13 @@ workflows:
              - create_task_plan_kandev (or update_task_plan_kandev on a revision)
              - put "Revision round: N" near the top
              - do not create any other file
-             - move the task to "Review - Spec".
-               Handoff: "Spec saved, revision round N, ready for review."
-             (NOTE: "Review - Codex" is a reserved slot for a future second-vendor
-              reviewer and runs no agent today - route straight to "Review - Spec".)
+             - move the task to "Review - Spec" (the first of two independent
+               reviews: Claude on the spec's correctness, then Codex on the
+               approach). Handoff: "Spec saved, revision round N, ready for review".
 
-      # RESERVED SLOT - second-vendor review, for when that CLI is wired up. Runs no
-      # agent today; the Draft step routes straight past it. Activate: add an
-      # agent_profile + on_enter:[reset_agent_context, auto_start_agent] + a prompt.
-      - name: Review - Codex
-        position: 2
-        color: bg-sky-500
-        is_start_step: false
-        show_in_command_panel: true
-        allow_manual_move: true
-        auto_advance_requires_signal: false
-        cancel_triggers_turn_complete: false
-        events: {}
-        prompt: |
-          [RESERVED - second-vendor spec review, not active]
-          No agent runs here yet. This slot is for an independent review by a
-          different model vendor once its CLI is available. Until then the Draft
-          step routes straight to "Review - Spec". If a task lands here by a manual
-          drag, move it to "Review - Spec" (or back to "Draft").
-
-      # Independent spec review. Fresh Claude session today; the vendor-swap slot.
+      # First of two independent spec reviews. Fresh Claude session; correctness lens.
       - name: Review - Spec
-        position: 3
+        position: 2
         color: bg-cyan-500
         is_start_step: false
         show_in_command_panel: true
@@ -164,28 +144,100 @@ workflows:
             Moving a task into or past one is a serious error and the workflow will bounce
             the task back.
 
-          [SPEC REVIEW - fresh session, final spec gate]
-          Fresh session. No memory of prior rounds. This is the last gate before
-          implementation - be exacting. Review the spec as an independent critic;
-          do not assume the drafting agent got it right.
+          [SPEC REVIEW - fresh session, first of two independent review gates]
+          Fresh session. No memory of prior rounds. You are the FIRST of two
+          independent reviewers (you, then Codex). Review the spec as an
+          independent critic; do not assume the drafting agent got it right.
 
           1. READ: get_task_plan_kandev (full spec + all prior review rounds); the
              feature doc in the repo's design-doc directory (`docs/**/specs/` or
              `docs/specs/` - whichever this repo uses); enough of the codebase to
              judge implementability. Note "Revision round: N".
-          2. REVIEW: invoke the `architecture-review` skill and apply it.
-             Dimensions: implementability against the real codebase, architecture
-             (layer fit, dependency direction, coupling, real vs speculative
-             abstractions), completeness (edge cases, error paths, unhappy path,
-             test coverage of each behavior), scope (within the feature doc; one
-             coherent thing), second-order effects. Also confirm the plan actually
-             resolved every objection from earlier "## Spec review round" sections.
+          2. REVIEW: invoke the `architecture-review` skill and apply it. Your lens
+             is CORRECTNESS AND COMPLETENESS (Codex takes the approach/risk lens
+             next, so weight those less here):
+             - implementability against the real codebase
+             - architecture: layer fit, dependency direction, coupling, real vs
+               speculative abstractions
+             - completeness: every behavior a testable assertion; edge cases,
+               error paths, the unhappy path, test coverage of each behavior
+             - the spec stays within the feature doc's scope and is one coherent
+               thing
+             - every objection from earlier "## Spec review round" sections is
+               actually resolved
           3. VERDICT: update_task_plan_kandev, append:
-               ## Spec review round N - APPROVED|REJECTED by Spec Review
+               ## Spec review round N - APPROVED|REJECTED by Claude Spec Review
                (REJECTED: numbered objections with why + fix. APPROVED: one line.)
           4. ROUTE:
-             - APPROVED -> move to "Implement". Handoff: "Spec approved, round N."
+             - APPROVED -> move to "Review - Codex". Handoff: "Claude spec review
+               passed, round N."
              - REJECTED and N < 3 -> move to "Draft". Handoff: "Rejected round N."
+             - REJECTED and N >= 3 -> move to "Needs Human".
+               Handoff: "Stalled round N: <one-line core disagreement>."
+             One move_task_kandev call, then end your turn.
+
+      # Second, independent spec review by a different vendor (Codex). Approach/risk
+      # lens; last gate before Implement. Bind the `codex-review` profile in the UI.
+      - name: Review - Codex
+        position: 3
+        color: bg-sky-500
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        agent_profile:
+          agent_name: Codex
+          model: gpt-5.6-sol
+          mode: agent
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        prompt: |
+          [MOVEMENT DISCIPLINE - read before acting]
+          - Move the task to EXACTLY ONE step: the target named in THIS step's own
+            instructions below. Never a step further ahead. Never "Done", "Commit Doc",
+            "Commit", "Integrate", or "Needs Human" unless THIS prompt names it as your
+            target.
+          - Call move_task_kandev at most ONCE, as the final action of your turn, then end
+            the turn. Do not call it a second time. If you are unsure where to go, STOP and
+            end the turn WITHOUT moving - a human will unstick you. Do not guess forward.
+          - Steps that run no agent (Human Approval / Human Review / Done) are hard gates.
+            Moving a task into or past one is a serious error and the workflow will bounce
+            the task back.
+
+          [CODEX SPEC REVIEW - fresh session, second and final spec gate]
+          Fresh session, different model vendor. Claude has already reviewed this
+          spec for correctness and approved it. You are the SECOND, independent
+          review and the last gate before implementation - be exacting. Do not
+          assume Claude or the drafter got it right.
+
+          Your lens is APPROACH AND RISK, not style:
+            - Is this the right approach at all? Name a materially simpler design
+              if one exists.
+            - Hidden or unstated assumptions the spec depends on.
+            - What breaks in production: failure paths, partial failures,
+              concurrency, scale, migrations / rollout, backward compatibility.
+            - Scope creep vs the feature doc; speculative generality.
+            - Risks the drafter and the first reviewer both missed.
+          Do NOT re-litigate naming, formatting, or test-by-test wording - that
+          was the first review's job.
+
+          1. READ: get_task_plan_kandev (full spec + all prior review rounds,
+             including "## Spec review round N ... by Claude Spec Review"); the
+             feature doc in the repo's design-doc directory (`docs/**/specs/` or
+             `docs/specs/`); enough of the codebase to judge the approach. Note
+             "Revision round: N".
+          2. REVIEW along the lens above.
+          3. VERDICT: update_task_plan_kandev, append:
+               ## Spec review round N - APPROVED|REJECTED by Codex Spec Review
+               (REJECTED: numbered objections with why + fix. APPROVED: one line.)
+          4. ROUTE:
+             - APPROVED -> move to "Implement". Handoff: "Both spec reviews passed,
+               round N."
+             - REJECTED and N < 3 -> move to "Draft". Handoff: "Codex rejected
+               round N."
              - REJECTED and N >= 3 -> move to "Needs Human".
                Handoff: "Stalled round N: <one-line core disagreement>."
              One move_task_kandev call, then end your turn.

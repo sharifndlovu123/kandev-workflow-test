@@ -1,11 +1,12 @@
 # Feature Delivery Workflow — Design Spec
 
-**Date:** 2026-08-27 · **Last refreshed:** 2026-08-30
-**Status:** Built and proven end-to-end. Claude-only for now (multi-vendor slots
-reserved). See §13 for build reality, divergences, and open items.
+**Date:** 2026-08-27 · **Last refreshed:** 2026-08-31
+**Status:** Built and proven end-to-end. Two independent plan/spec reviews now
+run — Claude then Codex (2026-08-31); implementation half is Claude-only. See §13
+for build reality, divergences, and open items.
 **Owner:** Sharif
-**Target system:** Kandev (orchestration layer over Claude Code; Gemini CLI /
-Codex CLI slots reserved)
+**Target system:** Kandev (orchestration layer over Claude Code + Codex CLI;
+Gemini CLI installed but unused)
 
 > **Reading order:** §1–§12 are the original design (kept intact for the
 > rationale). §13 records what was actually built and where it diverged — read it
@@ -420,8 +421,8 @@ diverged from §1–§12 and what is still open.
 | § | Said | Actually |
 | --- | --- | --- |
 | §2 | `kandev` runs on port **7317** | The backend binds a **free port each `kandev run`** (e.g. 38429). Find it in the run log (`[kandev] open: http://localhost:PORT`). `ops/` scripts take `--url`. |
-| §3, §6, §8, §11.5 | Step `[3]` runs **Gemini** (`gemini-review`) | Runs a **fresh Claude session**. Gemini/Codex are deferred — the workspace is Claude-only for now. Step `[3]` is the slot a second vendor swaps into. |
-| §3, §10.1 | Step `[2]` "Review · Codex", disabled via a profile switch | Step `[2]` is a **reserved no-agent placeholder**: no `agent_profile`, prompt says "not active", `on_turn_start: move_to_next` guard (see §13.6). The Draft step routes straight past it. Activate by attaching a profile + `on_enter: [reset_agent_context, auto_start_agent]` and dropping the guard. |
+| §3, §6, §8, §11.5 | Step `[3]` runs **Gemini** (`gemini-review`) | Runs a **fresh Claude session** — the *first* of two reviews (correctness/completeness lens). Gemini is not used by either workflow. |
+| §3, §10.1 | Step `[2]` "Review · Codex", disabled via a profile switch | **Superseded 2026-08-31.** `Review - Codex` is now the *second* review, **after** the Claude review, running a fresh **Codex** session (`codex-review` profile, agent `codex-acp`, `gpt-5.6-sol`) on an **approach/risk lens**. Order in both workflows: Draft → Review-Spec/Design (Claude) → Review-Codex (Codex) → next. Both reviews `reset_agent_context`, both reject to Draft, shared counter `N` cap 3. Codex CLI: `npm i -g @openai/codex` + `npm i -g @agentclientprotocol/codex-acp` (the `--prefer-offline` npx probe fails on a stale cache otherwise); ChatGPT-plan auth via `codex login`. The per-step agent binding is UI-only. |
 | §10.4 | `[8] Integrate` runs `gh pr create` **and `gh pr merge`** | Integrate **never merges**. It runs formatters, pushes, opens a PR against the task's base branch, records the URL, and moves to Done. Every PR is merged by a human. (Same for Design Doc's Commit Doc step.) |
 | §1, §12 | Docs live at `docs/specs/<feature>.md` | The workflows **detect** the repo's design-doc dir — an existing `docs/**/specs/` (e.g. epglum uses `docs/superpowers/specs/`), else `docs/specs/` — and match its filename convention. |
 | §4 (Code Review) | diff against the repo default branch | Diff against the **task's base branch**. The repo default (`main`) can be ~1250 commits behind the real base (`dev`); diffing against it pulls in unrelated files. |
@@ -456,8 +457,12 @@ the plan and `git log`" prompt.
 
 - **§10.5 `notify` target** — never configured. Human Review / Needs Human depend
   on someone watching the board. (Kandev Settings → Notifications; UI-only.)
-- **§11.9 Codex** — deferred, blocked on external (paid plan / API key). Slot
-  ready. Not a gap in our own work.
+- **§11.9 Codex** — ✅ **done 2026-08-31.** ChatGPT Plus bought; Codex wired in as the
+  second plan/spec reviewer in both workflows (see §13.2). `codex-review` bound to `Review -
+  Codex` in the UI (full-access). Design Doc smoke test passed end-to-end — Codex
+  auto-started, reviewed the plan, approved, routed to Human Approval, stopped at the gate.
+  Feature Delivery not separately smoke-tested (identical review-step wiring; would need a
+  merged design doc to feed it).
 - **§12 `clean-code` → `~/.gemini/skills/`** — not copied (only needed if Gemini
   does code review; we are Claude-only).
 
@@ -526,6 +531,8 @@ agents to obey the prompt. The original Design-Doc incident is now unlikely
 (bad resume prompt fixed + MOVEMENT DISCIPLINE), and on the F2 build the agents
 moved one step at a time exactly as told. The real structural fix — linear steps
 using `on_turn_complete: move_to_step` so the agent has *no* say in the
-destination, `on_turn_start` used *only* on `Review - Codex` where forwarding is
-desired — needs `auto_advance_requires_signal` + the runtime step-complete signal
-and a full-cycle test rig. Deferred.
+destination — needs `auto_advance_requires_signal` + the runtime step-complete
+signal and a full-cycle test rig. Deferred. **Note (2026-08-31):** `Review -
+Codex` is no longer a no-agent forwarding step — it runs a real Codex review — so
+the "`on_turn_start` only on `Review - Codex`" idea no longer applies; every
+review step is now a normal agent step under MOVEMENT DISCIPLINE.

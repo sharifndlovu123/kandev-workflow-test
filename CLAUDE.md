@@ -74,9 +74,17 @@ considering a change done.
   + step-complete-signal approach.
 - **Design-doc directory is detected**, not hardcoded — an existing `docs/**/specs/`
   (e.g. `docs/superpowers/specs/`), else `docs/specs/`.
-- Both workflows are Claude-only today (profile `claude-build`, sonnet/acceptEdits,
-  `auto_approve`). The `Review - Codex` step in each is a reserved no-agent placeholder for a
-  second vendor.
+- **Two independent plan/spec reviews, in order.** Each workflow runs Draft → `Review - Spec` /
+  `Review - Design` (fresh Claude, `claude-build`, correctness/completeness lens) → `Review -
+  Codex` (fresh Codex, `codex-review` profile = agent `codex-acp` / `gpt-5.6-sol`, approach/risk
+  lens) → next. Both reviews `reset_agent_context` on enter; both reject to Draft; one shared
+  round counter `N`, cap 3 → Needs Human. Keep the two lenses distinct — Codex's prompt says
+  not to re-litigate naming/style. The implementation half (Implement/Test/Code Review) stays
+  Claude-only.
+- **Per-step agent binding is UI-only.** `update_workflow_step_kandev` does not take an agent
+  field; the YAML's `agent_profile:` block is descriptive. After importing/editing a workflow,
+  bind `codex-review` to the `Review - Codex` step (and confirm `claude-build` on the rest) in
+  the Kandev UI.
 
 ## Operational notes
 
