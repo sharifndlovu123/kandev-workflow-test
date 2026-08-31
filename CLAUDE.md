@@ -67,11 +67,18 @@ considering a change done.
   open a PR and stop; the prompts forbid `gh pr merge`.
 - **Base branch is taken from the task**, never assumed to be `main`. Code Review diffs against
   the task's base branch, not the repo default.
-- **Human Approval / Human Review are gates with no agent.** They are enforced by prompt
-  discipline only — the **MOVEMENT DISCIPLINE** block at the top of every agent step prompt.
-  Structural `on_turn_start` guards were tried and reverted (`§13.6`): they fire on the
-  deferred-move arrival and cause bounce loops. Do not re-add them without the `on_turn_complete`
-  + step-complete-signal approach.
+- **Two kinds of step transition.** Single-exit steps (`Draft`/`Draft Doc`, `Implement`,
+  `Integrate`, `Commit Doc`) advance **structurally**: `auto_advance_requires_signal: true` +
+  `on_turn_complete: [move_to_next]`, and their prompts open with a `[STEP COMPLETION]` block —
+  the agent calls `step_complete_kandev` and the runtime moves it; blocked ⇒ don't signal ⇒
+  waits for a human. Multi-exit steps (all reviews, `Test`, `Code Review`) branch on a verdict
+  and stay agent-driven: a `[MOVEMENT DISCIPLINE]` block with the exact `move_task_kandev`
+  recipe. Use `move_to_next`, never `move_to_step` (its `{step_position}` config is broken in
+  v0.91.0 — `§13.6`).
+- **Human Approval / Human Review are gates with no agent.** Enforced by prompt discipline —
+  the MOVEMENT DISCIPLINE / STEP COMPLETION block at the top of every agent step. Structural
+  `on_turn_start` guards were tried and reverted (`§13.6`): they fire on the deferred-move
+  arrival and cause bounce loops. Do not re-add them.
 - **Design-doc directory is detected**, not hardcoded — an existing `docs/**/specs/`
   (e.g. `docs/superpowers/specs/`), else `docs/specs/`.
 - **Two independent plan/spec reviews, in order.** Each workflow runs Draft → `Review - Spec` /

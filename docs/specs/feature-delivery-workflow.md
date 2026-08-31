@@ -536,15 +536,32 @@ from both workflows; F2 build manually moved to Human Review (stays put now).
    (`Review-Design` REJECTED round 1 → Draft Doc → `Revision round: 2` → re-review
    confirmed the objection resolved → APPROVED → Codex → Human Approval).
 
-**Residual gap.** Structural enforcement is still zero — the workflow trusts
-agents to obey the prompt (now with an exact recipe, which held under test). One
-minor slip remains: an agent occasionally double-calls `move_task_kandev` with
-the *same* correct target; harmless (deferred move, last-write-wins) but still a
-discipline violation. The real structural fix — single-exit steps using
-`on_turn_complete: move_to_step` + `auto_advance_requires_signal` +
-`step_complete_kandev` so the agent has *no* say in the forward hop (multi-exit
-review/test/code-review steps stay agent-driven) — is the next step, to be
-proven on a branch before committing. **Note (2026-08-31):** `Review -
+4. **Structural advance for single-exit steps (2026-08-31).** The `Draft`/`Draft
+   Doc`, `Implement`, `Integrate`, `Commit Doc` steps — each has exactly one
+   forward exit — now carry `auto_advance_requires_signal: true` +
+   `on_turn_complete: [move_to_next]`. Their prompts open with a `[STEP
+   COMPLETION]` block instead of MOVEMENT DISCIPLINE: do the work, call
+   `step_complete_kandev`, end the turn — **the runtime moves the task**; the
+   agent cannot call `move_task_kandev` there. Blocked/unclear ⇒ don't signal ⇒
+   task waits for a human (proven: probe v4). Multi-exit steps (all reviews,
+   `Test`, `Code Review`) branch on a verdict and stay agent-driven with the
+   explicit recipe from (3).
+   Mechanism proof (throwaway workflow, 4 probes): `on_turn_complete:
+   move_to_step` + `{step_position}` config is **broken** in v0.91.0 (signal
+   consumed, no move) — use `move_to_next`, which works and honours the signal
+   gate. Every single-exit hop here *is* to the next step, so `move_to_next`
+   suffices. End-to-end smoke (Design Doc): `Draft Doc` advanced to `Review-Design`
+   via `step_complete` with **zero `move_task_kandev` calls**; `Commit Doc` opened
+   its PR then advanced to `Done` the same way; the review steps still moved
+   themselves cleanly.
+
+**Residual gap.** For the multi-exit steps, enforcement is still prompt-only
+(exact recipe, held under test). One minor slip: an agent occasionally
+double-calls `move_task_kandev` with the *same* correct target — harmless
+(deferred move, last-write-wins). Making the review steps' *approve* path
+structural too (approve = `step_complete`, reject = `move_task` back) is a
+possible follow-up but not done — the verdict decision is the point of those
+steps and the asymmetry could confuse the agent. **Note (2026-08-31):** `Review -
 Codex` is no longer a no-agent forwarding step — it runs a real Codex review — so
 the "`on_turn_start` only on `Review - Codex`" idea no longer applies; every
 review step is now a normal agent step under MOVEMENT DISCIPLINE.

@@ -20,15 +20,22 @@ workflows:
       writes it to a file. Verdicts and the round counter live there too. Never
       rely on chat history - it is reset between steps.
 
-      To move the task to another step:
+      Each step's prompt starts with either a MOVEMENT DISCIPLINE block (you choose
+      the next step) or a STEP COMPLETION block (the workflow advances you). Follow
+      whichever THIS step has.
+
+      MOVEMENT DISCIPLINE steps — to move the task on:
         1. list_workflow_steps_kandev(workflow_id)  -> step names to ids
         2. move_task_kandev(task_id, workflow_id, workflow_step_id=<target id>,
            prompt="<short factual handoff, <= 2 sentences>")
-        3. STOP. The move_task_kandev call is the LAST action of your turn. Call it
-           exactly ONCE, then end your turn immediately. Do NOT call it again, do
-           NOT keep working, do NOT advance the task past the step you moved it to
-           - a step that runs no agent (e.g. "Human Approval") is a DELIBERATE
-           HUMAN GATE; leave the task there.
+        3. STOP. That call is the LAST action of your turn. Call it exactly ONCE,
+           then end your turn. Do NOT keep working, do NOT advance the task past the
+           step you moved it to - a step that runs no agent (e.g. "Human Approval")
+           is a DELIBERATE HUMAN GATE; leave the task there.
+
+      STEP COMPLETION steps — do the step's work, then call step_complete_kandev and
+      end your turn. Do NOT call move_task_kandev on these steps. If you are blocked,
+      do not signal — just end your turn and the task waits for a human.
 
       Never argue your case in a move `prompt`. A fresh-context reviewer forms its
       own judgment from the plan and the repo. All substance goes in the plan.
@@ -50,7 +57,7 @@ workflows:
         is_start_step: true
         show_in_command_panel: true
         allow_manual_move: true
-        auto_advance_requires_signal: false
+        auto_advance_requires_signal: true
         cancel_triggers_turn_complete: false
         agent_profile:
           agent_name: Claude
@@ -60,29 +67,24 @@ workflows:
           on_enter:
             - type: enable_plan_mode
             - type: auto_start_agent
+          on_turn_complete:
+            - type: move_to_next
           on_exit:
             - type: disable_plan_mode
         prompt: |
-          [MOVEMENT DISCIPLINE - read before acting]
-          - Move the task to EXACTLY ONE step: the target named in THIS step's own
-            instructions below. Never a step further ahead. Never "Done", "Commit Doc",
-            "Commit", "Integrate", or "Needs Human" unless THIS prompt names it as your
-            target.
-          - The move is ONE tool call, made once, as the final action of your turn:
-              move_task_kandev(task_id, workflow_id, workflow_step_id=<id>, prompt="<handoff>")
-            Get <id> from list_workflow_steps_kandev(workflow_id) - it is the target
-            step's id, NOT its name. The handoff argument is named `prompt`; there is
-            no `message` and no `step` argument. After the call, end the turn - do not
-            call move_task_kandev again and do not keep working.
-          - If you are unsure where to go, STOP and end the turn WITHOUT moving - a
-            human will unstick you. Do not guess forward.
-          - Steps that run no agent (Human Approval / Human Review / Done) are hard
-            gates. Moving a task into or past one is a serious error. Nothing
-            structural catches it - this block is the only guard.
-          - PLAN MODE IS ON here: you cannot and must not create or edit any file. If a
-            handoff note or resume instruction told you to write/commit a file, that note
-            is wrong for this step - ignore it, write only into the task plan, and hand off
-            normally. A later step is the one that writes files.
+          [STEP COMPLETION - this step advances on its own]
+          - You do NOT move the task and you do NOT call move_task_kandev. When your
+            work for THIS step is finished, call step_complete_kandev and end your
+            turn - the workflow then advances the task to the next step ("Review -
+            Design") automatically.
+          - Calling move_task_kandev here is an error; it can skip a gate.
+          - If the ask is ambiguous on something that changes the design, or a human
+            must decide: do NOT call step_complete_kandev - just end your turn (after
+            calling ask_user_question_kandev if it is a question). The task stays on
+            this step.
+          - PLAN MODE IS ON here: you cannot create or edit any file. Write only into
+            the task plan; a later step writes files. Ignore any note telling you to
+            write or commit a file here.
 
           [DRAFT DOC - produce a design document]
           Plan mode is ON: you cannot change files. This phase is research + writing
@@ -122,10 +124,9 @@ workflows:
              - ## Success criteria
              Put "Revision round: N" and "slug: <slug>" near the top.
              Do NOT create any file - the doc lives in the plan for now.
-          6. HAND OFF: move the task to "Review - Design" (the first of two
-             independent reviews: Claude on the doc's soundness, then Codex on the
-             approach). Handoff: "Design doc drafted, revision round N."
-             One move_task_kandev call, then end your turn.
+          6. SIGNAL DONE: call step_complete_kandev, then end your turn. The workflow
+             advances the task to "Review - Design" (first of two independent reviews:
+             Claude on the doc's soundness, then Codex on the approach).
 
       # First of two independent design reviews. Fresh Claude session; soundness lens.
       - name: Review - Design
@@ -276,7 +277,7 @@ workflows:
         is_start_step: false
         show_in_command_panel: true
         allow_manual_move: true
-        auto_advance_requires_signal: false
+        auto_advance_requires_signal: true
         cancel_triggers_turn_complete: false
         agent_profile:
           agent_name: Claude
@@ -285,23 +286,17 @@ workflows:
         events:
           on_enter:
             - type: auto_start_agent
+          on_turn_complete:
+            - type: move_to_next
         prompt: |
-          [MOVEMENT DISCIPLINE - read before acting]
-          - Move the task to EXACTLY ONE step: the target named in THIS step's own
-            instructions below. Never a step further ahead. Never "Done", "Commit Doc",
-            "Commit", "Integrate", or "Needs Human" unless THIS prompt names it as your
-            target.
-          - The move is ONE tool call, made once, as the final action of your turn:
-              move_task_kandev(task_id, workflow_id, workflow_step_id=<id>, prompt="<handoff>")
-            Get <id> from list_workflow_steps_kandev(workflow_id) - it is the target
-            step's id, NOT its name. The handoff argument is named `prompt`; there is
-            no `message` and no `step` argument. After the call, end the turn - do not
-            call move_task_kandev again and do not keep working.
-          - If you are unsure where to go, STOP and end the turn WITHOUT moving - a
-            human will unstick you. Do not guess forward.
-          - Steps that run no agent (Human Approval / Human Review / Done) are hard
-            gates. Moving a task into or past one is a serious error. Nothing
-            structural catches it - this block is the only guard.
+          [STEP COMPLETION - this step advances on its own]
+          - You do NOT move the task and you do NOT call move_task_kandev. When the
+            doc PR is open, call step_complete_kandev and end your turn - the workflow
+            then advances the task to "Done" automatically. "Done" is terminal.
+          - Calling move_task_kandev here is an error; it can skip a gate.
+          - If you cannot open the PR (push fails, base branch unclear): record why
+            in the plan, end your turn, do NOT call step_complete_kandev. The task
+            stays here for a human.
 
           [COMMIT DOC]
           The human approved the design. Package it as a PR - you do NOT merge it.
@@ -330,11 +325,9 @@ workflows:
              doc is the source of truth for all future work on this feature -
              Sharif merges it deliberately after a final read. Merging it yourself
              is a serious error.
-          7. Record the PR URL in the plan. Then do EXACTLY ONE thing: call
-             move_task_kandev once to move the task to "Done" with handoff
-             "Doc PR opened: <URL>". Then END YOUR TURN immediately. Do not move
-             the task again. Do not move it to "Needs Human". Do not do any
-             cleanup. "Done" is terminal - you are finished.
+          7. Record the PR URL in the plan. Then call step_complete_kandev and END
+             YOUR TURN immediately. Do not do any cleanup. The workflow moves the
+             task to "Done" - terminal, you are finished.
 
       - name: Done
         position: 6

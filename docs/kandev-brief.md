@@ -94,6 +94,15 @@ task's **base branch**, not the repo default) → **Human Review** (no-agent gat
 Human. Both spec reviews reject to **Draft** (shared counter `N`, cap 3). Assumes an approved
 design doc already exists in the repo.
 
+### Step transitions
+
+Single-exit steps — `Draft`/`Draft Doc`, `Implement`, `Integrate`, `Commit Doc` — advance
+**structurally**: `auto_advance_requires_signal: true` + `on_turn_complete: [move_to_next]`;
+the agent calls `step_complete_kandev` and the runtime moves it (blocked ⇒ don't signal ⇒
+waits for a human). Multi-exit steps (reviews, `Test`, `Code Review`) stay agent-driven —
+`move_task_kandev` with the exact recipe in the prompt. `move_to_next` only; `move_to_step`
+`{step_position}` is broken in v0.91.0 (§13.6).
+
 ### Step IDs
 
 Design Doc (in order): Backlog `a5167f08` · Draft Doc `c6cf0503` · Review-Design `0bd3d534` ·
