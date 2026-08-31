@@ -83,15 +83,20 @@ considering a change done.
   (e.g. `docs/superpowers/specs/`), else `docs/specs/`.
 - **Two independent plan/spec reviews, in order.** Each workflow runs Draft → `Review - Spec` /
   `Review - Design` (fresh Claude, `claude-build`, correctness/completeness lens) → `Review -
-  Codex` (fresh Codex, `codex-review` profile = agent `codex-acp` / `gpt-5.6-sol`, approach/risk
+  Codex` (fresh Codex, `codex` profile = agent `codex-acp` / `gpt-5.6-sol`, approach/risk
   lens) → next. Both reviews `reset_agent_context` on enter; both reject to Draft; one shared
   round counter `N`, cap 3 → Needs Human. Keep the two lenses distinct — Codex's prompt says
-  not to re-litigate naming/style. The implementation half (Implement/Test/Code Review) stays
-  Claude-only.
+  not to re-litigate naming/style.
+- **Step-by-step agent split** (all `agent-full-access` for Codex, `acceptEdits` for Claude):
+  Claude runs Draft/Draft Doc, Review-Spec/Review-Design, Implement, Code Review.
+  **Codex** runs Review-Codex, **Test** (cold verification — cross-vendor from the implementer),
+  **Commit Doc** and **Integrate** (mechanical PR packaging). One `codex` profile
+  (`0251a285…`, `gpt-5.6-sol`) for all four. Only steps whose prompts don't lean on Claude Code
+  skills (`architecture-review`, `clean-code`) can move to Codex without a prompt rewrite.
 - **Per-step agent binding is UI-only.** `update_workflow_step_kandev` does not take an agent
   field; the YAML's `agent_profile:` block is descriptive. After importing/editing a workflow,
-  bind `codex-review` to the `Review - Codex` step (and confirm `claude-build` on the rest) in
-  the Kandev UI.
+  bind in the Kandev UI: `codex` on Review-Codex + Test + Integrate (FD) and Review-Codex +
+  Commit Doc (DD); `claude-build` on the rest.
 
 ## Operational notes
 

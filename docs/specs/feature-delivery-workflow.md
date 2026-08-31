@@ -1,9 +1,10 @@
 # Feature Delivery Workflow — Design Spec
 
 **Date:** 2026-08-27 · **Last refreshed:** 2026-08-31
-**Status:** Built and proven end-to-end. Two independent plan/spec reviews now
-run — Claude then Codex (2026-08-31); implementation half is Claude-only. See §13
-for build reality, divergences, and open items.
+**Status:** Built and proven end-to-end. Two independent plan/spec reviews (Claude
+then Codex, 2026-08-31). Agents split per step: Claude drafts, reviews-first, and
+implements + code-reviews; Codex reviews-second, runs Test, and packages PRs
+(Commit Doc / Integrate). See §13 for build reality, divergences, and open items.
 **Owner:** Sharif
 **Target system:** Kandev (orchestration layer over Claude Code + Codex CLI;
 Gemini CLI installed but unused)
@@ -422,7 +423,8 @@ diverged from §1–§12 and what is still open.
 | --- | --- | --- |
 | §2 | `kandev` runs on port **7317** | The backend binds a **free port each `kandev run`** (e.g. 38429). Find it in the run log (`[kandev] open: http://localhost:PORT`). `ops/` scripts take `--url`. |
 | §3, §6, §8, §11.5 | Step `[3]` runs **Gemini** (`gemini-review`) | Runs a **fresh Claude session** — the *first* of two reviews (correctness/completeness lens). Gemini is not used by either workflow. |
-| §3, §10.1 | Step `[2]` "Review · Codex", disabled via a profile switch | **Superseded 2026-08-31.** `Review - Codex` is now the *second* review, **after** the Claude review, running a fresh **Codex** session (`codex-review` profile, agent `codex-acp`, `gpt-5.6-sol`) on an **approach/risk lens**. Order in both workflows: Draft → Review-Spec/Design (Claude) → Review-Codex (Codex) → next. Both reviews `reset_agent_context`, both reject to Draft, shared counter `N` cap 3. Codex CLI: `npm i -g @openai/codex` + `npm i -g @agentclientprotocol/codex-acp` (the `--prefer-offline` npx probe fails on a stale cache otherwise); ChatGPT-plan auth via `codex login`. The per-step agent binding is UI-only. |
+| §3 (agent per step) | All non-review steps run Claude | **Split 2026-08-31.** Claude: Draft/Draft Doc, Review-Spec/Design, Implement, Code Review. **Codex** (`codex` profile, `agent-full-access`): Review-Codex, **Test** (cross-vendor cold check), **Integrate** and **Commit Doc** (mechanical PR packaging). Rationale: spread the Claude 5-hour quota and get Test a genuinely independent vendor. Only steps that don't invoke Claude Code skills were eligible without a prompt rewrite. Proven so far: Review-Codex and **Commit Doc** on Codex; Test + Integrate await a full FD run (Integrate ≈ Commit Doc). |
+| §3, §10.1 | Step `[2]` "Review · Codex", disabled via a profile switch | **Superseded 2026-08-31.** `Review - Codex` is now the *second* review, **after** the Claude review, running a fresh **Codex** session (`codex` profile, agent `codex-acp`, `gpt-5.6-sol`) on an **approach/risk lens**. Order in both workflows: Draft → Review-Spec/Design (Claude) → Review-Codex (Codex) → next. Both reviews `reset_agent_context`, both reject to Draft, shared counter `N` cap 3. Codex CLI: `npm i -g @openai/codex` + `npm i -g @agentclientprotocol/codex-acp` (the `--prefer-offline` npx probe fails on a stale cache otherwise); ChatGPT-plan auth via `codex login`. The per-step agent binding is UI-only. |
 | §10.4 | `[8] Integrate` runs `gh pr create` **and `gh pr merge`** | Integrate **never merges**. It runs formatters, pushes, opens a PR against the task's base branch, records the URL, and moves to Done. Every PR is merged by a human. (Same for Design Doc's Commit Doc step.) |
 | §1, §12 | Docs live at `docs/specs/<feature>.md` | The workflows **detect** the repo's design-doc dir — an existing `docs/**/specs/` (e.g. epglum uses `docs/superpowers/specs/`), else `docs/specs/` — and match its filename convention. |
 | §4 (Code Review) | diff against the repo default branch | Diff against the **task's base branch**. The repo default (`main`) can be ~1250 commits behind the real base (`dev`); diffing against it pulls in unrelated files. |
@@ -458,7 +460,7 @@ the plan and `git log`" prompt.
 - **§10.5 `notify` target** — never configured. Human Review / Needs Human depend
   on someone watching the board. (Kandev Settings → Notifications; UI-only.)
 - **§11.9 Codex** — ✅ **done 2026-08-31.** ChatGPT Plus bought; Codex wired in as the
-  second plan/spec reviewer in both workflows (see §13.2). `codex-review` bound to `Review -
+  second plan/spec reviewer in both workflows (see §13.2). `codex` profile bound to `Review -
   Codex` in the UI (full-access). Design Doc smoke test passed end-to-end — Codex
   auto-started, reviewed the plan, approved, routed to Human Approval, stopped at the gate.
   Feature Delivery not separately smoke-tested (identical review-step wiring; would need a

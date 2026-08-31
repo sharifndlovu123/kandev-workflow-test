@@ -21,11 +21,14 @@ codebase**.
 - Workspace id: `692988fd-8e4f-45b4-934e-0c608e10cd40` (the only one).
 - Agent profiles:
   - **`claude-build`** = `a8993fd1-e8d3-41b3-806c-81936a54b24d` (agent `claude-acp` `b5a7639d…`),
-    model `sonnet`, mode `acceptEdits`, `auto_approve: true`. Drives every Claude step.
-  - **`codex-review`** = `0251a285-e68d-4167-b88b-4d3b2435dfcf` (agent `codex-acp`
-    `f2905613…`), model `gpt-5.6-sol`, mode `agent`. Drives the `Review - Codex` step in
-    both workflows (2026-08-31). Codex CLI: `npm i -g @openai/codex` + `@agentclientprotocol/codex-acp`
-    (see the workflow-exploration memory for the probe fix); auth is ChatGPT-plan (`codex login`).
+    model `sonnet`, mode `acceptEdits`, `auto_approve: true`. Drives Draft/Draft Doc,
+    Review-Spec/Review-Design, Implement, Code Review.
+  - **`codex`** = `0251a285-e68d-4167-b88b-4d3b2435dfcf` (agent `codex-acp` `f2905613…`),
+    model `gpt-5.6-sol`, mode `agent-full-access`. Drives **Review-Codex** (both workflows),
+    **Test** and **Integrate** (FD), **Commit Doc** (DD). Codex CLI:
+    `npm i -g @openai/codex` + `@agentclientprotocol/codex-acp` (see the workflow-exploration
+    memory for the probe fix); auth is ChatGPT-plan (`codex login`). (Was `codex-review`,
+    renamed 2026-08-31 when it took on the non-review steps.)
   - Gemini (`gemini` agent) is installed/probed `ok` but not used by either workflow.
 
 ## This repo
@@ -173,12 +176,16 @@ the human's next promotion.
 
 - Kandev consolidated: **`main` only, live instance == committed YAMLs, service healthy, all
   tasks archived, `~/.kandev/tasks/` empty.**
-- **Codex wired in as the second plan/spec reviewer** in both workflows. Order is now
-  Draft → Claude review → Codex review → next. `codex-review` profile bound to `Review -
-  Codex` in the UI (per-step agent binding is UI-only, not settable over MCP), set to
-  full-access. **Design Doc smoke test passed 2026-08-31** — Codex auto-started on the
-  step, read the plan, approved, routed to Human Approval, stopped at the gate. Feature
-  Delivery not separately tested (same review-step wiring).
+- **Codex wired in** (2026-08-31), profile `codex` (`0251a285…`, `agent-full-access`):
+  - **Review-Codex** (both workflows) — second plan/spec review, after the Claude review
+    (order: Draft → Claude review → Codex review → next). Approach/risk lens.
+  - **Test** + **Integrate** (FD), **Commit Doc** (DD) — offloaded from Claude to spread
+    quota + give Test a cross-vendor cold check.
+  Per-step agent binding is UI-only (not settable over MCP). **Proven via Design Doc smoke
+  runs:** Review-Codex on Codex; structural advance (Draft Doc, Commit Doc) via
+  `step_complete_kandev`; **Commit Doc on Codex** (wrote doc, opened PR, signalled done).
+  Codex on **Test** and **Integrate** (FD) not yet exercised — needs a full Feature Delivery
+  run; Integrate is mechanically identical to the proven Commit Doc.
 - `architecture-review` skill is now backed by two `book-to-skill` knowledge bases in
   `~/.claude/skills/` + `~/.gemini/skills/`: **`kleppmann-data-intensive`** (DDIA) and
   **`burns-distributed-systems`**.

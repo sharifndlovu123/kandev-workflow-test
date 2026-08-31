@@ -191,7 +191,7 @@ workflows:
                Handoff: "Stalled round N: <one-line core disagreement>."
 
       # Second, independent design review by a different vendor (Codex). Approach/risk
-      # lens; last gate before Human Approval. Bind the `codex-review` profile in the UI.
+      # lens; last gate before Human Approval. Bind the `codex` profile in the UI.
       - name: Review - Codex
         position: 3
         color: bg-sky-500
@@ -271,6 +271,7 @@ workflows:
           - Approve -> drag the task to "Commit Doc" (opens a PR; Sharif merges it).
           - Changes -> add a note to the plan and drag it back to "Draft Doc".
 
+      # Doc commit + PR runs on Codex.
       - name: Commit Doc
         position: 5
         color: bg-indigo-500
@@ -280,9 +281,9 @@ workflows:
         auto_advance_requires_signal: true
         cancel_triggers_turn_complete: false
         agent_profile:
-          agent_name: Claude
-          model: sonnet
-          mode: acceptEdits
+          agent_name: Codex
+          model: gpt-5.6-sol
+          mode: agent-full-access
         events:
           on_enter:
             - type: auto_start_agent

@@ -188,7 +188,7 @@ workflows:
              One move_task_kandev call, then end your turn.
 
       # Second, independent spec review by a different vendor (Codex). Approach/risk
-      # lens; last gate before Implement. Bind the `codex-review` profile in the UI.
+      # lens; last gate before Implement. Bind the `codex` profile in the UI.
       - name: Review - Codex
         position: 3
         color: bg-sky-500
@@ -312,6 +312,7 @@ workflows:
              work alone). Put "Build round: M" in the plan. Call step_complete_kandev
              and end your turn - the workflow advances the task to "Test".
 
+      # Cold verification runs on Codex (different vendor from the implementer).
       - name: Test
         position: 5
         color: bg-teal-500
@@ -321,9 +322,9 @@ workflows:
         auto_advance_requires_signal: false
         cancel_triggers_turn_complete: false
         agent_profile:
-          agent_name: Claude
-          model: sonnet
-          mode: acceptEdits
+          agent_name: Codex
+          model: gpt-5.6-sol
+          mode: agent-full-access
         events:
           on_enter:
             - type: reset_agent_context
@@ -347,8 +348,9 @@ workflows:
             structural catches it - this block is the only guard.
 
           [TEST - cold verification]
-          Fresh session. You did not write this code. Find out whether it works and
-          whether it is really tested - do not defend it.
+          Fresh session, and a different model vendor from the implementer (you are
+          Codex; Claude wrote this code). You did not write it. Find out whether it
+          works and whether it is really tested - do not defend it.
 
           1. READ: get_task_plan_kandev - the behaviors that must exist. Note
              "Build round: M".
@@ -449,6 +451,7 @@ workflows:
           - Approve  -> drag the task to "Integrate".
           - Changes  -> add a comment / edit the plan and drag it back to "Implement".
 
+      # PR packaging runs on Codex.
       - name: Integrate
         position: 8
         color: bg-indigo-500
@@ -458,9 +461,9 @@ workflows:
         auto_advance_requires_signal: true
         cancel_triggers_turn_complete: false
         agent_profile:
-          agent_name: Claude
-          model: sonnet
-          mode: acceptEdits
+          agent_name: Codex
+          model: gpt-5.6-sol
+          mode: agent-full-access
         events:
           on_enter:
             - type: auto_start_agent
