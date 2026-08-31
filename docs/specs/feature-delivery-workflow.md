@@ -513,26 +513,38 @@ from both workflows; F2 build manually moved to Human Review (stays put now).
 
 **Fix — what actually stands (attempt 2):**
 
-1. **MOVEMENT DISCIPLINE block** prepended to every agent step prompt and added
-   to the workflow-level navigation prompt: only ever move to the target named in
-   *this* step's prompt; never ≥2 steps ahead; never `Done`/`Commit Doc`/
-   `Integrate`/`Needs Human` unless named; if unsure, stop with no move; a
-   handoff/resume note never adds work or overrides the step; plan-mode steps
-   never write files regardless of what a note says. *(One stale line in that
-   block still says "the workflow will bounce the task back" — no longer true
-   after the revert; harmless, fix on next prompt pass.)*
+1. **MOVEMENT DISCIPLINE block** prepended to every agent step prompt: only ever
+   move to the target named in *this* step's prompt; never ≥2 steps ahead; never
+   `Done`/`Commit Doc`/`Integrate`/`Needs Human` unless named; if unsure, stop
+   with no move; a handoff/resume note never adds work or overrides the step;
+   plan-mode steps never write files regardless of what a note says.
 2. **`ops/resume-driver.py`** re-trigger prompt tightened to "follow THIS step's
    prompt, this note adds nothing"; **`ops/README.md`** documents that a manual
    re-trigger prompt must never name a file or a cross-step action. This was the
    actual trigger of the original Design-Doc incident.
+3. **Explicit move recipe in the MOVEMENT DISCIPLINE block (2026-08-31).** The
+   first Codex smoke test showed the Draft agent fumbling the transition: it
+   called `move_task_kandev({message, step: "<name>"})` twice (invented params —
+   the arg is `prompt`, and it needs the step *id*, not the name) before
+   recovering via `list_workflow_steps_kandev` and a correct call. The block now
+   spells out the exact call — `move_task_kandev(task_id, workflow_id,
+   workflow_step_id=<id from list_workflow_steps_kandev>, prompt="<handoff>")`,
+   "no `message`, no `step` arg" — and the stale "workflow will bounce the task
+   back" line is replaced with the truth (nothing structural catches a bad move).
+   Verified: a second smoke run made **6/6 move calls well-formed on the first
+   try, zero errors**, and incidentally exercised the reject loop
+   (`Review-Design` REJECTED round 1 → Draft Doc → `Revision round: 2` → re-review
+   confirmed the objection resolved → APPROVED → Codex → Human Approval).
 
-**Residual gap.** Structural enforcement is back to zero — the workflow trusts
-agents to obey the prompt. The original Design-Doc incident is now unlikely
-(bad resume prompt fixed + MOVEMENT DISCIPLINE), and on the F2 build the agents
-moved one step at a time exactly as told. The real structural fix — linear steps
-using `on_turn_complete: move_to_step` so the agent has *no* say in the
-destination — needs `auto_advance_requires_signal` + the runtime step-complete
-signal and a full-cycle test rig. Deferred. **Note (2026-08-31):** `Review -
+**Residual gap.** Structural enforcement is still zero — the workflow trusts
+agents to obey the prompt (now with an exact recipe, which held under test). One
+minor slip remains: an agent occasionally double-calls `move_task_kandev` with
+the *same* correct target; harmless (deferred move, last-write-wins) but still a
+discipline violation. The real structural fix — single-exit steps using
+`on_turn_complete: move_to_step` + `auto_advance_requires_signal` +
+`step_complete_kandev` so the agent has *no* say in the forward hop (multi-exit
+review/test/code-review steps stay agent-driven) — is the next step, to be
+proven on a branch before committing. **Note (2026-08-31):** `Review -
 Codex` is no longer a no-agent forwarding step — it runs a real Codex review — so
 the "`on_turn_start` only on `Review - Codex`" idea no longer applies; every
 review step is now a normal agent step under MOVEMENT DISCIPLINE.
