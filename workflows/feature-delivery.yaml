@@ -354,8 +354,17 @@ workflows:
 
           1. READ: get_task_plan_kandev - the behaviors that must exist. Note
              "Build round: M".
-          2. RUN THE FULL SUITE. Find the test command (package.json scripts /
-             Makefile / etc.). Run the entire suite, plus any linter / typecheck.
+          2. SET UP THE PROJECT TOOLCHAIN, THEN RUN THE FULL SUITE.
+             - Install/activate the versions the repo declares (e.g. pip install -e
+               "apps/api[dev]", the lockfile, the documented setup target) so ruff /
+               mypy / pytest / node match CI. Do NOT rely on versions already on PATH.
+             - Find the real test command (Makefile / package.json scripts / CI
+               workflow). Run the ENTIRE suite plus the linter and typecheck,
+               invoked the same way CI invokes them.
+             - If a gate fails but the branch's CI is green on the same commit,
+               suspect a local toolchain/version mismatch first. Reconcile it before
+               recording a FAIL. A local-only tool-version discrepancy is not a code
+               defect and must not bounce the task.
           3. VERIFY THE TESTS ARE REAL. For each behavior in the plan: a test
              exists that exercises it, it passes, and it asserts something
              meaningful (reject assert(true), empty bodies, tests that never call
