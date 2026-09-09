@@ -20,6 +20,11 @@ workflows:
       writes it to a file. Verdicts and the round counter live there too. Never
       rely on chat history - it is reset between steps.
 
+      update_task_plan_kandev REPLACES the entire plan - it does not merge or
+      append. Before calling it, ALWAYS call get_task_plan_kandev first and
+      include the full existing content plus your addition/change in what you
+      write back. Skipping this destroys every prior round's work.
+
       Each step's prompt starts with either a MOVEMENT DISCIPLINE block (you choose
       the next step) or a STEP COMPLETION block (the workflow advances you). Follow
       whichever THIS step has.
@@ -112,7 +117,10 @@ workflows:
              date prefix, else `<slug>.md` - match the repo's own convention.
              Record the slug AND the chosen target path near the top of the plan.
           5. WRITE THE DESIGN DOC into the plan (create_task_plan_kandev, or
-             update_task_plan_kandev on a revision). Structure:
+             update_task_plan_kandev on a revision - update_task_plan_kandev
+             REPLACES the whole plan, it does not append; if get_task_plan_kandev
+             returned existing content, your write must include ALL of it plus
+             your changes, or you will destroy prior rounds' work). Structure:
              - # Feature: <name>
              - ## Why  (problem, who benefits, motivating scenarios)
              - ## Scope  (what is in; a bulleted "Explicitly out of scope")
@@ -180,7 +188,10 @@ workflows:
                justified
              - every objection in earlier "## Design review round" sections is
                actually resolved
-          3. VERDICT: update_task_plan_kandev, append:
+          3. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
+             not append. Take the full content get_task_plan_kandev just
+             returned and write it back UNCHANGED plus this new section added
+             at the end:
                ## Design review round N - APPROVED|REJECTED by Claude Design Review
                (REJECTED: numbered objections with why + fix. APPROVED: one line.)
           4. ROUTE (one move, then end your turn):
@@ -245,7 +256,10 @@ workflows:
              "## Design review round N ... by Claude Design Review"); explore the
              codebase if one exists. Note "Revision round: N".
           2. REVIEW along the lens above.
-          3. VERDICT: update_task_plan_kandev, append:
+          3. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
+             not append. Take the full content get_task_plan_kandev just
+             returned and write it back UNCHANGED plus this new section added
+             at the end:
                ## Design review round N - APPROVED|REJECTED by Codex Design Review
                (REJECTED: numbered objections with why + fix. APPROVED: one line.)
           4. ROUTE (one move, then end your turn):
@@ -326,7 +340,10 @@ workflows:
              doc is the source of truth for all future work on this feature -
              Sharif merges it deliberately after a final read. Merging it yourself
              is a serious error.
-          7. Record the PR URL in the plan. Then call step_complete_kandev and END
+          7. Record the PR URL in the plan via update_task_plan_kandev - it
+             REPLACES the whole plan, it does not append; read the existing
+             content first and write it back in full plus the PR URL. Then call
+             step_complete_kandev and END
              YOUR TURN immediately. Do not do any cleanup. The workflow moves the
              task to "Done" - terminal, you are finished.
 

@@ -19,6 +19,11 @@ workflows:
       Verdicts, rationale, and the round counters live there — never rely on chat
       history, which is reset between several steps.
 
+      update_task_plan_kandev REPLACES the entire plan - it does not merge or
+      append. Before calling it, ALWAYS call get_task_plan_kandev first and
+      include the full existing content plus your addition/change in what you
+      write back. Skipping this destroys every prior round's work.
+
       Each step's prompt starts with either a MOVEMENT DISCIPLINE block (you choose
       the next step) or a STEP COMPLETION block (the workflow advances you). Follow
       whichever THIS step has.
@@ -113,7 +118,11 @@ workflows:
              - edge cases, error paths, explicit out-of-scope notes
              - mermaid for diagrams
           5. SAVE + SIGNAL DONE:
-             - create_task_plan_kandev (or update_task_plan_kandev on a revision)
+             - create_task_plan_kandev (or update_task_plan_kandev on a revision -
+               it REPLACES the whole plan, it does not append; if
+               get_task_plan_kandev returned existing content, your write must
+               include ALL of it plus your changes, or you will destroy prior
+               rounds' work)
              - put "Revision round: N" near the top
              - do not create any other file
              - call step_complete_kandev, then end your turn. The workflow advances
@@ -176,7 +185,10 @@ workflows:
                thing
              - every objection from earlier "## Spec review round" sections is
                actually resolved
-          3. VERDICT: update_task_plan_kandev, append:
+          3. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
+             not append. Take the full content get_task_plan_kandev just
+             returned and write it back UNCHANGED plus this new section added
+             at the end:
                ## Spec review round N - APPROVED|REJECTED by Claude Spec Review
                (REJECTED: numbered objections with why + fix. APPROVED: one line.)
           4. ROUTE:
@@ -246,7 +258,10 @@ workflows:
              `docs/specs/`); enough of the codebase to judge the approach. Note
              "Revision round: N".
           2. REVIEW along the lens above.
-          3. VERDICT: update_task_plan_kandev, append:
+          3. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
+             not append. Take the full content get_task_plan_kandev just
+             returned and write it back UNCHANGED plus this new section added
+             at the end:
                ## Spec review round N - APPROVED|REJECTED by Codex Spec Review
                (REJECTED: numbered objections with why + fix. APPROVED: one line.)
           4. ROUTE:
@@ -309,7 +324,10 @@ workflows:
              issue, or a fix needing an architectural change the plan didn't
              anticipate -> record it in the plan, end your turn, do NOT signal done.
           4. SIGNAL DONE: commit all YOUR task changes (leave unrelated uncommitted
-             work alone). Put "Build round: M" in the plan. Call step_complete_kandev
+             work alone). Put "Build round: M" in the plan via update_task_plan_kandev
+             - it REPLACES the whole plan, it does not append; read the existing
+             content first and write it back in full plus this change, or you will
+             destroy the approved spec and review history. Call step_complete_kandev
              and end your turn - the workflow advances the task to "Test".
 
       # Cold verification runs on Codex (different vendor from the implementer).
@@ -369,7 +387,10 @@ workflows:
              exists that exercises it, it passes, and it asserts something
              meaningful (reject assert(true), empty bodies, tests that never call
              the code under test).
-          4. VERDICT + ROUTE. update_task_plan_kandev, append:
+          4. VERDICT + ROUTE. update_task_plan_kandev - REPLACES the whole plan,
+             it does not append. Take the full content get_task_plan_kandev just
+             returned and write it back UNCHANGED plus this new section added
+             at the end:
                ## Test round M - PASS|FAIL
                (FAIL: exact failing output, which behavior, file:line)
              - PASS -> move to "Code Review". Handoff: "Tests pass, build round M."
@@ -434,7 +455,12 @@ workflows:
              explicit-path `review:` message. Record author-facing issues in the
              plan with file:line, why, and fix. Only findings you are >= 80%
              confident about. Do not comment on unmodified code.
-          4. VERDICT + ROUTE. update_task_plan_kandev, append:
+          4. VERDICT + ROUTE. update_task_plan_kandev - REPLACES the whole plan,
+             it does not append. Take the full content get_task_plan_kandev just
+             returned (the approved spec plus every prior review/test round) and
+             write it back UNCHANGED plus this new section added at the end -
+             skipping this destroys the entire spec and history, not just this
+             round's note:
                ## Code review round M - PASS|CHANGES REQUIRED
                (findings)
              - PASS -> move to "Human Review". Handoff: "Code review clean, round M."
@@ -511,9 +537,11 @@ workflows:
              squash the PR. Every PR in this project is merged deliberately by a
              human after their own final read. Merging it yourself is a serious
              error.
-          6. SIGNAL DONE: record the PR URL in the plan. Then call step_complete_kandev
-             and END YOUR TURN. Do not do further cleanup. The workflow moves the
-             task to "Done" - terminal.
+          6. SIGNAL DONE: record the PR URL in the plan via update_task_plan_kandev
+             - it REPLACES the whole plan, it does not append; read the existing
+             content first and write it back in full plus the PR URL. Then call
+             step_complete_kandev and END YOUR TURN. Do not do further cleanup.
+             The workflow moves the task to "Done" - terminal.
 
       - name: Done
         position: 9
