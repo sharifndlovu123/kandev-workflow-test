@@ -163,6 +163,15 @@ PAGE = """<!doctype html>
   .edge-count-bg { fill: #0b0d10; }
   .edge-count { fill: #9aa4b2; font-size: 10px; text-anchor: middle; font-weight: 600; }
   #empty { padding: 40px; color: #6b7280; text-align: center; }
+  #trace-title { font-size: 13px; font-weight: 600; color: #9aa4b2; margin: 0; padding: 14px 16px 0; border-top: 1px solid #23262b; }
+  #trace-placeholder { padding: 16px; color: #6b7280; font-size: 12px; }
+  #trace-wrap { overflow: auto; padding: 4px 0 16px; }
+  .trace-box { fill-opacity: 0.18; stroke-width: 1.5; rx: 6; }
+  .trace-box.backward-hop { stroke: #ef4444; fill: #ef4444; }
+  .trace-label { fill: #e6e8eb; font-size: 11px; font-weight: 600; text-anchor: middle; }
+  .trace-num { fill: #6b7280; font-size: 9px; text-anchor: middle; }
+  .trace-arrow { stroke: #4b5563; stroke-width: 1.5; fill: none; }
+  .trace-arrow.backward-hop { stroke: #ef4444; stroke-dasharray: 4 3; }
   #legend { display: flex; gap: 20px; align-items: center; padding: 8px 16px; font-size: 12px; color: #9aa4b2; border-bottom: 1px solid #23262b; flex-wrap: wrap; }
   #legend .item { display: flex; align-items: center; gap: 6px; }
   #legend svg { width: 28px; height: 10px; flex-shrink: 0; }
@@ -182,6 +191,9 @@ PAGE = """<!doctype html>
 </div>
 <div id="canvas-wrap"><svg id="canvas" width="100%" height="500"></svg></div>
 <div id="empty" style="display:none">No transition history yet for this workflow — steps will appear once tasks start moving.</div>
+<h2 id="trace-title">Task path</h2>
+<div id="trace-placeholder">Click a task above to see its actual path here, step by step, in the order it really happened.</div>
+<div id="trace-wrap"><svg id="trace-canvas" width="100%" height="1"></svg></div>
 
 <script>
 const POLL_MS = __POLL_MS__;
@@ -328,6 +340,85 @@ function render(state) {
       render(lastState);
     };
   });
+
+  renderTrace(state);
+}
+
+// The "tree" view: one task's own history, unrolled into a straight left-to-right,
+// wrapping sequence of blocks - each revisit of a step is its own block, connected
+// next-to-next in the order it actually happened. No curves to decode: a reject loop
+// is just literal repeated blocks going along the sequence.
+const TRACE_BOX_W = 150, TRACE_BOX_H = 40, TRACE_GAP_X = 46, TRACE_GAP_Y = 50, TRACE_COLS = 6;
+
+function renderTrace(state) {
+  const wrap = document.getElementById('trace-wrap');
+  const placeholder = document.getElementById('trace-placeholder');
+  const svg = document.getElementById('trace-canvas');
+
+  if (!selectedTask || !state || !state.trails[selectedTask]) {
+    wrap.style.display = 'none';
+    placeholder.style.display = 'block';
+    return;
+  }
+  const trail = state.trails[selectedTask];
+  if (trail.length === 0) {
+    wrap.style.display = 'none';
+    placeholder.textContent = 'This task has no recorded moves yet.';
+    placeholder.style.display = 'block';
+    return;
+  }
+  placeholder.style.display = 'none';
+  wrap.style.display = 'block';
+
+  const nameById = {};
+  state.steps.forEach(s => nameById[s.id] = s.name);
+
+  // path[0] = first step visited, path[i+1] = destination of hop i
+  const path = [trail[0].from, ...trail.map(t => t.to)];
+
+  function pos(i) {
+    const col = i % TRACE_COLS, row = Math.floor(i / TRACE_COLS);
+    return { x: 20 + col * (TRACE_BOX_W + TRACE_GAP_X), y: 20 + row * (TRACE_BOX_H + TRACE_GAP_Y), col, row };
+  }
+
+  const rows = Math.ceil(path.length / TRACE_COLS);
+  const width = Math.min(path.length, TRACE_COLS) * (TRACE_BOX_W + TRACE_GAP_X) + 40;
+  const height = rows * (TRACE_BOX_H + TRACE_GAP_Y) + 20;
+  svg.setAttribute('width', width);
+  svg.setAttribute('height', height);
+
+  let defs = `<defs><marker id="arrow-trace" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+    <path d="M0,0 L8,4 L0,8 Z" fill="#4b5563"/></marker>
+    <marker id="arrow-trace-back" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+    <path d="M0,0 L8,4 L0,8 Z" fill="#ef4444"/></marker></defs>`;
+
+  let arrowsSvg = '', boxesSvg = '';
+  path.forEach((stepId, i) => {
+    const p = pos(i);
+    const backward = i > 0 && trail[i - 1].backward;
+    const cls = backward ? ' backward-hop' : '';
+    boxesSvg += `<rect class="trace-box${cls}" x="${p.x}" y="${p.y}" width="${TRACE_BOX_W}" height="${TRACE_BOX_H}" style="${backward ? '' : 'fill:#3b82f6;stroke:#3b82f6'}"/>`;
+    boxesSvg += `<text class="trace-label" x="${p.x + TRACE_BOX_W/2}" y="${p.y + TRACE_BOX_H/2 + 4}">${esc(nameById[stepId] || '?')}</text>`;
+    boxesSvg += `<text class="trace-num" x="${p.x + TRACE_BOX_W/2}" y="${p.y - 6}">${i + 1}</text>`;
+
+    if (i > 0) {
+      const prev = pos(i - 1);
+      const hopCls = backward ? ' backward-hop' : '';
+      const marker = backward ? 'arrow-trace-back' : 'arrow-trace';
+      if (p.row === prev.row) {
+        const y = prev.y + TRACE_BOX_H / 2;
+        arrowsSvg += `<path class="trace-arrow${hopCls}" d="M${prev.x + TRACE_BOX_W},${y} L${p.x},${y}" marker-end="url(#${marker})"/>`;
+      } else {
+        // wrap to next row: down from end of prev row, across, down into the new box
+        const x1 = prev.x + TRACE_BOX_W / 2, y1 = prev.y + TRACE_BOX_H;
+        const y2 = p.y - 14;
+        const x3 = p.x + TRACE_BOX_W / 2;
+        arrowsSvg += `<path class="trace-arrow${hopCls}" d="M${x1},${y1} L${x1},${y2} L${x3},${y2} L${x3},${p.y}" marker-end="url(#${marker})"/>`;
+      }
+    }
+  });
+
+  svg.innerHTML = defs + arrowsSvg + boxesSvg;
 }
 
 async function poll() {
