@@ -165,6 +165,12 @@ workflows:
             step's id, NOT its name. The handoff argument is named `prompt`; there is
             no `message` and no `step` argument. After the call, end the turn - do not
             call move_task_kandev again and do not keep working.
+          - If that call fails (error, timeout, or an "active session" conflict), wait a
+            few seconds and retry it once or twice. If it still fails, do NOT just end
+            your turn silently - write one line into the plan first (e.g. "move_task_kandev
+            failed after 3 attempts - verdict above stands, this task needs a manual move")
+            so the failure is visible from the plan alone, not only in server logs. Then
+            end your turn.
           - If you are unsure where to go, STOP and end the turn WITHOUT moving - a
             human will unstick you. Do not guess forward.
           - Steps that run no agent (Human Approval / Human Review / Done) are hard
@@ -243,6 +249,12 @@ workflows:
             step's id, NOT its name. The handoff argument is named `prompt`; there is
             no `message` and no `step` argument. After the call, end the turn - do not
             call move_task_kandev again and do not keep working.
+          - If that call fails (error, timeout, or an "active session" conflict), wait a
+            few seconds and retry it once or twice. If it still fails, do NOT just end
+            your turn silently - write one line into the plan first (e.g. "move_task_kandev
+            failed after 3 attempts - verdict above stands, this task needs a manual move")
+            so the failure is visible from the plan alone, not only in server logs. Then
+            end your turn.
           - If you are unsure where to go, STOP and end the turn WITHOUT moving - a
             human will unstick you. Do not guess forward.
           - Steps that run no agent (Human Approval / Human Review / Done) are hard
