@@ -147,6 +147,31 @@ Human Review `c2d0bea7` · Integrate `e1a70990` · Done `aa9d65ff` · Needs Huma
   past its human gate (that incident drove the MOVEMENT DISCIPLINE hardening).
 - **kandev-as-a-service survives backend crashes** now; the resume tooling is still needed for
   the *agent* dying, not the backend.
+- **Round-cap escalation (N≥3 → Needs Human) is a counter check, not an enforced stop** —
+  fixed 2026-09-10 at the prompt level after Ticket 5 (tracker_fleet) reached 14 spec-review
+  rounds by taking the "bounce back to Draft" path every single time. The Needs Human prompt
+  now requires stating the round count and classifying every open finding
+  (ARCHITECTURE/MECHANISM/ENVIRONMENTAL) before allowing another Draft round; see
+  `workflows/{design-doc,feature-delivery}.yaml`'s Needs Human step (commit `b906794`). **Known
+  gaps in this fix, not yet closed:**
+  - **Prompt-discipline only, same limitation as the bullet above.** Nothing stops an agent (or
+    a human dragging the card in the UI) from ignoring the classification instructions and
+    bouncing back to Draft anyway — there is no tool-level block on `move_task_kandev` from
+    Needs Human to Draft. This fix makes the cost *visible*, it does not make bypassing it
+    *impossible*.
+  - **Only reaches an agent that reads the step prompt.** A human doing the drag directly in the
+    Kandev UI never sees this text at all — the gate's entire effect is mediated through an LLM
+    reading its own step instructions.
+  - **No cap on repeated ARCHITECTURE overrides.** An agent (or human) that keeps asserting "this
+    is genuinely architecture" every round defeats the fix the same way the old default did —
+    there's no meta-counter on "how many times has Needs Human been re-entered for this task."
+  - **Root engine limitation still unaddressed.** This is a prompt-level patch on top of the same
+    "no structural gate enforcement" gap noted above — the real fix (a tool-enforced stop on this
+    specific transition) needs the same runtime work already deferred there.
+  - **Revisit when:** a task bypasses this gate the same way Ticket 5 bypassed the round cap (i.e.
+    an agent/human overrides the classification without a written architecture finding), or when
+    the `on_turn_start`/step-complete runtime work above gets picked up — at that point this
+    transition specifically should get a real enforced check, not just a better prompt.
 
 ## ops/ tooling
 
