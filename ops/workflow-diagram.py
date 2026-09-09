@@ -160,7 +160,12 @@ PAGE = """<!doctype html>
   .task-marker rect { fill: #1f6feb; stroke: #58a6ff; stroke-width: 1; rx: 10; }
   .task-marker text { fill: #fff; font-size: 10px; text-anchor: middle; pointer-events: none; }
   .task-marker.selected rect { fill: #f59e0b; stroke: #fbbf24; }
+  .edge-count-bg { fill: #0b0d10; }
+  .edge-count { fill: #9aa4b2; font-size: 10px; text-anchor: middle; font-weight: 600; }
   #empty { padding: 40px; color: #6b7280; text-align: center; }
+  #legend { display: flex; gap: 20px; align-items: center; padding: 8px 16px; font-size: 12px; color: #9aa4b2; border-bottom: 1px solid #23262b; flex-wrap: wrap; }
+  #legend .item { display: flex; align-items: center; gap: 6px; }
+  #legend svg { width: 28px; height: 10px; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -169,6 +174,12 @@ PAGE = """<!doctype html>
   <select id="workflow-picker"></select>
   <span id="status">connecting...</span>
 </header>
+<div id="legend">
+  <span class="item"><svg><line x1="0" y1="5" x2="28" y2="5" stroke="#4b5563" stroke-width="2"/></svg> forward move (above the row)</span>
+  <span class="item"><svg><line x1="0" y1="5" x2="28" y2="5" stroke="#ef4444" stroke-width="2" stroke-dasharray="5 4"/></svg> rejected / sent back (below the row)</span>
+  <span class="item">×N on a line = how many times that exact move has happened, across every task</span>
+  <span class="item">click a task's blue label to trace its own path (hover a line for the full detail)</span>
+</div>
 <div id="canvas-wrap"><svg id="canvas" width="100%" height="500"></svg></div>
 <div id="empty" style="display:none">No transition history yet for this workflow — steps will appear once tasks start moving.</div>
 
@@ -178,13 +189,20 @@ let selectedWorkflow = null;
 let selectedTask = null;
 let lastState = null;
 
-const NODE_W = 150, NODE_H = 56, NODE_GAP = 90, ROW_Y = 220;
+const NODE_W = 150, NODE_H = 56, NODE_GAP = 90, ROW_Y = 260;
+
+// All step/workflow/task names come from Kandev's DB (user-entered content) and are
+// interpolated into innerHTML/SVG below - escape before every interpolation so a task
+// titled e.g. "<img src=x onerror=...>" can't execute in the viewer's browser.
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 async function loadWorkflows() {
   const r = await fetch('/api/workflows');
   const workflows = await r.json();
   const picker = document.getElementById('workflow-picker');
-  picker.innerHTML = workflows.map(w => `<option value="${w.id}">${w.name}</option>`).join('');
+  picker.innerHTML = workflows.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('');
   picker.onchange = () => { selectedWorkflow = picker.value; selectedTask = null; poll(); };
   if (workflows.length) { selectedWorkflow = workflows[0].id; picker.value = selectedWorkflow; }
 }
@@ -204,46 +222,52 @@ function render(state) {
   empty.style.display = 'none';
 
   const steps = state.steps;
-  const xByStep = {};
-  steps.forEach((s, i) => xByStep[s.id] = stepX(i));
+  const xByStep = {}, idxByStep = {};
+  steps.forEach((s, i) => { xByStep[s.id] = stepX(i); idxByStep[s.id] = i; });
   const width = Math.max(800, stepX(steps.length));
 
   svg.setAttribute('width', width);
-  svg.setAttribute('height', 480);
+  svg.setAttribute('height', 620);
 
   let defs = `<defs>
     <marker id="arrow-fwd" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4b5563"/></marker>
     <marker id="arrow-back" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ef4444"/></marker>
   </defs>`;
 
-  // stack multiple edges sharing the same direction+span at increasing arc height
+  // "Bridge" curve: leaves the source going straight up/down, travels at a constant
+  // height, then drops straight into the target. Unlike a single quadratic arc, this
+  // stays clear of every node it passes over instead of dipping low near its endpoints -
+  // that dipping was what made long edges look like they crossed through step boxes.
+  function bridgePath(fx, tx, h) {
+    return `M${fx},${ROW_Y} C${fx},${ROW_Y + h} ${tx},${ROW_Y + h} ${tx},${ROW_Y}`;
+  }
+
+  // stack multiple edges sharing the same direction+span at increasing height, and
+  // guarantee enough clearance over every node the edge spans (not just its own length)
   const spanCounts = {};
-  function arcHeight(fromX, toX, backward) {
-    const span = Math.abs(toX - fromX);
-    const key = (backward ? 'b' : 'f') + ':' + Math.min(fromX, toX) + ':' + Math.max(fromX, toX);
+  function edgeHeight(fromId, toId, backward) {
+    const spanNodes = Math.abs(idxByStep[toId] - idxByStep[fromId]);
+    const key = (backward ? 'b' : 'f') + ':' + Math.min(idxByStep[fromId], idxByStep[toId]) + ':' + Math.max(idxByStep[fromId], idxByStep[toId]);
     const n = spanCounts[key] = (spanCounts[key] || 0);
     spanCounts[key] = n + 1;
-    const base = 40 + span * 0.25 + n * 30;
+    const base = NODE_H / 2 + 34 + spanNodes * 6 + n * 30;
     return backward ? base : -base;
   }
 
   let edgesSvg = '';
-  const highlightKeys = new Set();
-  if (selectedTask && state.trails[selectedTask]) {
-    state.trails[selectedTask].forEach(t => highlightKeys.add(edgeKey(t) + ':' + t.occurred_at));
-  }
-
   state.edges.forEach(e => {
-    const fx = xByStep[e.from] + NODE_W / 2, fy = ROW_Y;
-    const tx = xByStep[e.to] + NODE_W / 2, ty = ROW_Y;
-    const h = arcHeight(fx, tx, e.backward);
+    const fx = xByStep[e.from] + NODE_W / 2, tx = xByStep[e.to] + NODE_W / 2;
+    const h = edgeHeight(e.from, e.to, e.backward);
     const midX = (fx + tx) / 2;
     const cls = e.backward ? 'edge-backward' : 'edge-forward';
     const marker = e.backward ? 'arrow-back' : 'arrow-fwd';
     const dim = selectedTask ? ' edge-dim' : '';
-    edgesSvg += `<path class="${cls}${dim}" d="M${fx},${fy} Q${midX},${fy + h} ${tx},${ty}" marker-end="url(#${marker})"/>`;
+    const fromName = state.steps[idxByStep[e.from]].name, toName = state.steps[idxByStep[e.to]].name;
+    const times = e.count === 1 ? 'once' : `${e.count} times`;
+    edgesSvg += `<path class="${cls}${dim}" d="${bridgePath(fx, tx, h)}" marker-end="url(#${marker})"><title>${esc(fromName)} → ${esc(toName)}: ${times}</title></path>`;
     if (e.count > 1) {
-      edgesSvg += `<text x="${midX}" y="${fy + h * 0.6}" font-size="10" fill="#6b7280" text-anchor="middle">${e.count}x</text>`;
+      edgesSvg += `<rect class="edge-count-bg" x="${midX - 12}" y="${ROW_Y + h - 8}" width="24" height="14" rx="3"/>` +
+        `<text class="edge-count" x="${midX}" y="${ROW_Y + h + 3}">×${e.count}</text>`;
     }
   });
 
@@ -251,20 +275,18 @@ function render(state) {
   let trailSvg = '';
   if (selectedTask && state.trails[selectedTask]) {
     const trail = state.trails[selectedTask];
-    spanCounts.__reset = 0;
     const localSpan = {};
     trail.forEach((t, idx) => {
-      const fx = xByStep[t.from] + NODE_W / 2, fy = ROW_Y;
-      const tx = xByStep[t.to] + NODE_W / 2, ty = ROW_Y;
-      const span = Math.abs(tx - fx);
-      const key = (t.backward ? 'b' : 'f') + ':' + Math.min(fx, tx) + ':' + Math.max(fx, tx);
+      const fx = xByStep[t.from] + NODE_W / 2, tx = xByStep[t.to] + NODE_W / 2;
+      const spanNodes = Math.abs(idxByStep[t.to] - idxByStep[t.from]);
+      const key = (t.backward ? 'b' : 'f') + ':' + Math.min(idxByStep[t.from], idxByStep[t.to]) + ':' + Math.max(idxByStep[t.from], idxByStep[t.to]);
       const n = localSpan[key] = (localSpan[key] || 0);
       localSpan[key] = n + 1;
-      const base = 40 + span * 0.25 + n * 30;
+      const base = NODE_H / 2 + 34 + spanNodes * 6 + n * 30;
       const h = t.backward ? base : -base;
-      const midX = (fx + tx) / 2;
       const cls = t.backward ? 'edge-backward' : 'edge-forward';
-      trailSvg += `<path class="${cls} edge-highlight" d="M${fx},${fy} Q${midX},${fy + h} ${tx},${ty}" marker-end="url(#${t.backward ? 'arrow-back' : 'arrow-fwd'})"/>`;
+      const stepLabel = `${idx + 1}. ${esc(state.steps[idxByStep[t.from]].name)} → ${esc(state.steps[idxByStep[t.to]].name)}`;
+      trailSvg += `<path class="${cls} edge-highlight" d="${bridgePath(fx, tx, h)}" marker-end="url(#${t.backward ? 'arrow-back' : 'arrow-fwd'})"><title>${stepLabel}</title></path>`;
     });
   }
 
@@ -272,7 +294,7 @@ function render(state) {
   steps.forEach((s, i) => {
     const x = stepX(i);
     nodesSvg += `<rect class="step-box" x="${x}" y="${ROW_Y - NODE_H/2}" width="${NODE_W}" height="${NODE_H}" style="fill:#3b82f6;stroke:#3b82f6"/>`;
-    nodesSvg += `<text class="step-label" x="${x + NODE_W/2}" y="${ROW_Y + 4}">${s.name}</text>`;
+    nodesSvg += `<text class="step-label" x="${x + NODE_W/2}" y="${ROW_Y + 4}">${esc(s.name)}</text>`;
   });
 
   // stack task markers per step
@@ -286,9 +308,10 @@ function render(state) {
     const my = ROW_Y + NODE_H/2 + 16 + n * 26;
     const label = t.title.length > 20 ? t.title.slice(0, 19) + '…' : t.title;
     const sel = t.id === selectedTask ? ' selected' : '';
-    tasksSvg += `<g class="task-marker${sel}" data-task="${t.id}" transform="translate(${x + NODE_W/2 - 65},${my})">
+    tasksSvg += `<g class="task-marker${sel}" data-task="${esc(t.id)}" transform="translate(${x + NODE_W/2 - 65},${my})">
       <rect width="130" height="20"/>
-      <text x="65" y="14">${label}</text>
+      <text x="65" y="14">${esc(label)}</text>
+      <title>${esc(t.title)}</title>
     </g>`;
   });
 
