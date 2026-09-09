@@ -613,6 +613,51 @@ workflows:
         events: {}
         prompt: |
           [NEEDS HUMAN - a loop hit its 3-round cap]
-          Read the task plan's review/test/code-review rounds to see the
-          disagreement. Then either: edit the plan and drag to the right step, send
-          it back to "Draft" with a ruling, or archive the task.
+          This gate exists to force a DECISION, not to be a waypoint back to more
+          rounds. "Send it back to Draft again" is the path of least resistance and
+          is very often the wrong call - a real incident (2026-09-09, Ticket 5)
+          reached 14 rounds by taking that path every single time, because nothing
+          here made the alternative easy or the cost visible.
+
+          FIRST: count the "## Spec review round" / "## Test round" / "## Code
+          review round" headers already in the plan and state that number
+          explicitly in your own note before deciding anything - "this is round N"
+          is the cost this gate exists to make visible. A human dragging this card
+          without reading this far still sees nothing; if you are the agent acting
+          on this step, saying the round count out loud in the plan is what makes
+          the next reader (human or agent) actually notice, instead of the count
+          staying implicit the way it did for 14 rounds on 2026-09-09.
+
+          THEN, classify every open finding:
+            - ARCHITECTURE: challenges a module boundary, a data-model shape, or a
+              stated design decision. Genuinely rare - re-read the last 3+ rounds'
+              verdicts: if every one of them independently reconfirmed the same
+              design and only found narrower implementation-level gaps, there is
+              almost certainly no architecture finding here.
+            - MECHANISM: a shared rule/pattern stated abstractly but not checked
+              against one concrete interface/framework, OR a named mechanism that
+              doesn't actually exist in the codebase. This is what most rounds
+              past the cap actually find. It is real and worth fixing, but it is
+              exactly the class of gap Implement -> Test -> Code Review exist to
+              catch more cheaply, under running code, than another abstract review
+              round can.
+            - ENVIRONMENTAL: the worktree/branch state has drifted from what the
+              spec assumes (uncommitted stray files, a branch missing a docs
+              commit, etc.) - not a spec-content problem at all. Fix the
+              environment directly; do not send the task back to Draft for this.
+
+          DEFAULT ACTION if every open finding is MECHANISM or ENVIRONMENTAL (this
+          should be the common case once the cap is hit): fix any ENVIRONMENTAL
+          items directly, record the MECHANISM items as implementation notes in the
+          plan, and move the task to "Implement" - do not open another Draft round
+          to fix things that Test/Code Review will verify against real code anyway.
+
+          Only send it back to "Draft" again if you can name a genuine ARCHITECTURE
+          finding under the classification above - and if you do, write that
+          classification and reasoning into the plan before moving, so the next
+          person (or the next round) can see a real decision was made, not just
+          another bounce. If you're using the step-back skill for this, its output
+          is exactly that written reasoning.
+
+          Otherwise: edit the plan with your ruling and drag to the right step, or
+          archive the task.

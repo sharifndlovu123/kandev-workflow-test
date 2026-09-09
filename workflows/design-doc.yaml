@@ -405,5 +405,52 @@ workflows:
         events: {}
         prompt: |
           [NEEDS HUMAN - the design review loop hit its 3-round cap]
-          Read the plan's "## Design review round" sections for the disagreement.
-          Then edit the plan and drag to the right step, or archive the task.
+          This gate exists to force a DECISION, not to be a waypoint back to more
+          rounds. "Send it back to Draft Doc again" is the path of least resistance
+          and is very often the wrong call - a real incident (2026-09-09, a Feature
+          Delivery spec) reached 14 rounds by taking that path every single time,
+          because nothing made the alternative easy or the cost visible.
+
+          FIRST: count the "## Design review round" headers already in the plan and
+          state that number explicitly in your own note before deciding anything -
+          "this is round N" is the cost this gate exists to make visible. A human
+          dragging this card without reading this far still sees nothing; if you
+          are the agent acting on this step, saying the round count out loud in the
+          plan is what makes the next reader (human or agent) actually notice,
+          instead of the count staying implicit the way it did for 14 rounds on
+          2026-09-09.
+
+          THEN, classify every open finding:
+            - ARCHITECTURE: challenges a module boundary, a data-model shape, or a
+              stated design decision. Genuinely rare - re-read the last 3+ rounds'
+              verdicts: if every one of them independently reconfirmed the same
+              design and only found narrower implementation-level gaps, there is
+              almost certainly no architecture finding here.
+            - MECHANISM: a shared rule/pattern stated abstractly but not checked
+              against one concrete interface/framework, OR a named mechanism that
+              doesn't actually exist in the target repo. Real and worth fixing, but
+              this is exactly the class of gap the follow-on Feature Delivery
+              ticket's Implement -> Test -> Code Review exist to catch more cheaply,
+              under running code, than another abstract design review round can.
+            - ENVIRONMENTAL: the doc's own stated assumptions have drifted from the
+              real repo state (a cited file/branch/commit that doesn't exist where
+              claimed, etc.) - not a design-content problem at all. Fix the
+              environment or the citation directly; do not send the task back to
+              Draft Doc for this.
+
+          DEFAULT ACTION if every open finding is MECHANISM or ENVIRONMENTAL (this
+          should be the common case once the cap is hit): fix any ENVIRONMENTAL
+          items directly, record the MECHANISM items as implementation notes for
+          whoever picks this design up next, and move the task to "Human Approval" -
+          do not open another Draft Doc round to fix things a later Feature Delivery
+          ticket's own review gates will verify against real code anyway.
+
+          Only send it back to "Draft Doc" again if you can name a genuine
+          ARCHITECTURE finding under the classification above - and if you do,
+          write that classification and reasoning into the plan before moving, so
+          the next person (or the next round) can see a real decision was made, not
+          just another bounce. If you're using the step-back skill for this, its
+          output is exactly that written reasoning.
+
+          Otherwise: edit the plan with your ruling and drag to the right step, or
+          archive the task.
