@@ -109,3 +109,11 @@ considering a change done.
   the feature ships. `ops/runs/_template.md` is the template (kept).
 - Per-task git worktrees live under `~/.kandev/tasks/`; git deregisters them on prune but the
   directories can be left root-owned by docker test runs (`sudo rm -rf` to clear).
+- **A task can also die non-rate-limit ways**: a full session message queue (`move_task` returns
+  CONFLICT or logs "queue full"), or a session `WAITING_FOR_INPUT` that never got the pending
+  question answered before the task moved (never move a task off a session that's mid-question —
+  it force-completes and silently discards the exchange). `ops/reset-task-session.py` handles the
+  archive→un-archive→Backlog-bounce recovery these need as one script — see
+  "Recovering a stuck session" in `ops/README.md` for the full detail, including the plan-
+  truncation and worktree-hard-reset risks that recovery itself carries and how the script
+  guards against them.
