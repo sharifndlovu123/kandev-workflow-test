@@ -13,6 +13,7 @@ everything was.
 | `kandev-mcp.py` | Minimal Kandev MCP client. `./kandev-mcp.py <tool> '<json>'`. The backend port changes every `kandev run` — pass `--url` or check the run log. |
 | `resume-driver.py` | Self-driving monitor for one task: re-triggers it after a rate-limit death (waits for the stated reset time, bounces via Backlog), restarts the backend if it dies, stops at a human gate / Done. Runs only while its shell is alive. |
 | `reset-task-session.py` | One-shot recovery for a task stuck on a dead / full-queue / conflicted session (see "Recovering a stuck session" below). Run it yourself — it's meant to be invoked directly, not proposed command-by-command. |
+| `workflow-diagram.py` | Live block-and-line diagram of a workflow — nodes from `workflow_steps`, edges derived empirically from `task_step_transitions` history (forward solid, backward/reject dashed red), active tasks as clickable markers with per-task trail highlighting. Local only, stdlib only, read-only DB access. `./ops/workflow-diagram.py [--port 8420]`, then open `http://localhost:8420/`. See `docs/specs/live-workflow-diagram.md`. |
 | `runs/_template.md` | Per-feature tracking file template. |
 | `runs/<slug>.md` | One per in-flight feature — the durable facts to resume it. **Delete it when the feature ships.** Git-ignored. |
 
