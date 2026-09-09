@@ -188,15 +188,27 @@ workflows:
                justified
              - every objection in earlier "## Design review round" sections is
                actually resolved
-          3. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
+          3. MINOR-FINDING CHECK, before writing the verdict: for each finding,
+             is it ONLY a single-line wording, numeric value, or citation/line-
+             number fix - and does it touch nothing in Approach, Behaviour,
+             Success Criteria, or Scope? If so it is eligible for an inline fix.
+             Never treat anything touching those four sections as eligible, no
+             matter how small it looks.
+          4. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
              not append. Take the full content get_task_plan_kandev just
-             returned and write it back UNCHANGED plus this new section added
-             at the end:
-               ## Design review round N - APPROVED|REJECTED by Claude Design Review
-               (REJECTED: numbered objections with why + fix. APPROVED: one line.)
-          4. ROUTE (one move, then end your turn):
-             - APPROVED -> move to "Review - Codex". Handoff: "Claude design review
-               passed, round N."
+             returned and write it back with this new section added at the end,
+             PLUS, if every finding this round was eligible per step 3, the
+             eligible fixes applied directly in place in the doc text itself
+             (not just described):
+               ## Design review round N - APPROVED|APPROVED (M inline fixes)|REJECTED by Claude Design Review
+               (REJECTED: numbered objections with why + fix - list ALL findings,
+               including any that were individually eligible, since even one
+               ineligible finding means nothing gets auto-fixed this round.
+               APPROVED: one line. APPROVED (M inline fixes): one line per fix -
+               what changed and why.)
+          5. ROUTE (one move, then end your turn):
+             - APPROVED or APPROVED (M inline fixes) -> move to "Review - Codex".
+               Handoff: "Claude design review passed, round N."
              - REJECTED and N < 3 -> move to "Draft Doc". Handoff: "Rejected round N."
              - REJECTED and N >= 3 -> move to "Needs Human".
                Handoff: "Stalled round N: <one-line core disagreement>."
@@ -256,15 +268,27 @@ workflows:
              "## Design review round N ... by Claude Design Review"); explore the
              codebase if one exists. Note "Revision round: N".
           2. REVIEW along the lens above.
-          3. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
+          3. MINOR-FINDING CHECK, before writing the verdict: for each finding,
+             is it ONLY a single-line wording, numeric value, or citation/line-
+             number fix - and does it touch nothing in Approach, Behaviour,
+             Success Criteria, or Scope? If so it is eligible for an inline fix.
+             Never treat anything touching those four sections as eligible, no
+             matter how small it looks.
+          4. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
              not append. Take the full content get_task_plan_kandev just
-             returned and write it back UNCHANGED plus this new section added
-             at the end:
-               ## Design review round N - APPROVED|REJECTED by Codex Design Review
-               (REJECTED: numbered objections with why + fix. APPROVED: one line.)
-          4. ROUTE (one move, then end your turn):
-             - APPROVED -> move to "Human Approval". Handoff: "Both design reviews
-               passed, round N."
+             returned and write it back with this new section added at the end,
+             PLUS, if every finding this round was eligible per step 3, the
+             eligible fixes applied directly in place in the doc text itself
+             (not just described):
+               ## Design review round N - APPROVED|APPROVED (M inline fixes)|REJECTED by Codex Design Review
+               (REJECTED: numbered objections with why + fix - list ALL findings,
+               including any that were individually eligible, since even one
+               ineligible finding means nothing gets auto-fixed this round.
+               APPROVED: one line. APPROVED (M inline fixes): one line per fix -
+               what changed and why.)
+          5. ROUTE (one move, then end your turn):
+             - APPROVED or APPROVED (M inline fixes) -> move to "Human Approval".
+               Handoff: "Both design reviews passed, round N."
              - REJECTED and N < 3 -> move to "Draft Doc". Handoff: "Codex rejected
                round N."
              - REJECTED and N >= 3 -> move to "Needs Human".

@@ -185,15 +185,27 @@ workflows:
                thing
              - every objection from earlier "## Spec review round" sections is
                actually resolved
-          3. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
+          3. MINOR-FINDING CHECK, before writing the verdict: for each finding,
+             is it ONLY a single-line wording, numeric value, or citation/line-
+             number fix - and does it touch nothing in an approach, a behavior
+             assertion, success criteria, or scope? If so it is eligible for an
+             inline fix. Never treat anything touching those as eligible, no
+             matter how small it looks.
+          4. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
              not append. Take the full content get_task_plan_kandev just
-             returned and write it back UNCHANGED plus this new section added
-             at the end:
-               ## Spec review round N - APPROVED|REJECTED by Claude Spec Review
-               (REJECTED: numbered objections with why + fix. APPROVED: one line.)
-          4. ROUTE:
-             - APPROVED -> move to "Review - Codex". Handoff: "Claude spec review
-               passed, round N."
+             returned and write it back with this new section added at the end,
+             PLUS, if every finding this round was eligible per step 3, the
+             eligible fixes applied directly in place in the spec text itself
+             (not just described):
+               ## Spec review round N - APPROVED|APPROVED (M inline fixes)|REJECTED by Claude Spec Review
+               (REJECTED: numbered objections with why + fix - list ALL findings,
+               including any that were individually eligible, since even one
+               ineligible finding means nothing gets auto-fixed this round.
+               APPROVED: one line. APPROVED (M inline fixes): one line per fix -
+               what changed and why.)
+          5. ROUTE:
+             - APPROVED or APPROVED (M inline fixes) -> move to "Review - Codex".
+               Handoff: "Claude spec review passed, round N."
              - REJECTED and N < 3 -> move to "Draft". Handoff: "Rejected round N."
              - REJECTED and N >= 3 -> move to "Needs Human".
                Handoff: "Stalled round N: <one-line core disagreement>."
@@ -258,15 +270,27 @@ workflows:
              `docs/specs/`); enough of the codebase to judge the approach. Note
              "Revision round: N".
           2. REVIEW along the lens above.
-          3. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
+          3. MINOR-FINDING CHECK, before writing the verdict: for each finding,
+             is it ONLY a single-line wording, numeric value, or citation/line-
+             number fix - and does it touch nothing in an approach, a behavior
+             assertion, success criteria, or scope? If so it is eligible for an
+             inline fix. Never treat anything touching those as eligible, no
+             matter how small it looks.
+          4. VERDICT: update_task_plan_kandev - REPLACES the whole plan, it does
              not append. Take the full content get_task_plan_kandev just
-             returned and write it back UNCHANGED plus this new section added
-             at the end:
-               ## Spec review round N - APPROVED|REJECTED by Codex Spec Review
-               (REJECTED: numbered objections with why + fix. APPROVED: one line.)
-          4. ROUTE:
-             - APPROVED -> move to "Implement". Handoff: "Both spec reviews passed,
-               round N."
+             returned and write it back with this new section added at the end,
+             PLUS, if every finding this round was eligible per step 3, the
+             eligible fixes applied directly in place in the spec text itself
+             (not just described):
+               ## Spec review round N - APPROVED|APPROVED (M inline fixes)|REJECTED by Codex Spec Review
+               (REJECTED: numbered objections with why + fix - list ALL findings,
+               including any that were individually eligible, since even one
+               ineligible finding means nothing gets auto-fixed this round.
+               APPROVED: one line. APPROVED (M inline fixes): one line per fix -
+               what changed and why.)
+          5. ROUTE:
+             - APPROVED or APPROVED (M inline fixes) -> move to "Implement".
+               Handoff: "Both spec reviews passed, round N."
              - REJECTED and N < 3 -> move to "Draft". Handoff: "Codex rejected
                round N."
              - REJECTED and N >= 3 -> move to "Needs Human".
