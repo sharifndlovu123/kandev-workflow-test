@@ -61,14 +61,27 @@ def db():
 
 
 def find_worktree_repo(task_id):
-    """Best-effort: locate this task's worktree checkout under ~/.kandev/tasks/."""
-    for d in TASKS_DIR.glob("*"):
-        if not d.is_dir():
-            continue
-        # worktree dirs are named <slug>_<hash>; contents are one repo subdir
-        for repo_dir in d.iterdir():
-            if (repo_dir / ".git").exists():
-                return repo_dir
+    """Locate THIS task's worktree checkout via its own session's workspace_path.
+
+    Bug fixed 2026-09-11: this used to glob ~/.kandev/tasks/* and return the
+    FIRST repo dir found, ignoring task_id entirely - on a machine running
+    multiple tasks concurrently it could grab and push a completely
+    unrelated task's worktree/branch (observed: a Stage 9 tracker_fleet
+    reset picked up an unrelated otp_app worktree instead). The DB's
+    task_sessions.workspace_path is the authoritative source for which
+    worktree belongs to this task.
+    """
+    with db() as c:
+        rows = c.execute(
+            "select workspace_path from task_sessions "
+            "where task_id=? and workspace_path != '' "
+            "order by updated_at desc",
+            (task_id,),
+        ).fetchall()
+    for (path,) in rows:
+        repo_dir = pathlib.Path(path)
+        if (repo_dir / ".git").exists():
+            return repo_dir
     return None
 
 
