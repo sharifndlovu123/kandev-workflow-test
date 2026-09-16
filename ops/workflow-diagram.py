@@ -3,7 +3,7 @@
 
 Reads ~/.kandev/data/kandev.db directly (read-only, WAL-safe — Kandev's own
 writer is never blocked and never blocks us). No pip installs, no CDN, no
-build step: stdlib http.server + hand-rolled SVG rendered client-side in
+build step: stdlib http.server + a workflow sequence and task timeline rendered client-side in
 vanilla JS. See docs/specs/live-workflow-diagram.md for the design.
 
 Usage:
@@ -24,7 +24,7 @@ DEFAULT_DB = pathlib.Path.home() / ".kandev/data/kandev.db"
 EXPECTED_COLUMNS = {
     "workflows": {"id", "name", "workspace_id"},
     "workflow_steps": {"id", "workflow_id", "name", "position", "color"},
-    "tasks": {"id", "workflow_id", "workflow_step_id", "title", "archived_at"},
+    "tasks": {"id", "workflow_id", "workflow_step_id", "title", "archived_at", "description", "state", "created_at", "updated_at"},
     "task_step_transitions": {
         "task_id", "from_workflow_id", "from_workflow_step_id",
         "to_workflow_step_id", "occurred_at",
@@ -80,7 +80,7 @@ def get_state(db_path, workflow_id):
             return None
 
         tasks = [dict(r) for r in conn.execute(
-            "SELECT id, title, workflow_step_id FROM tasks "
+            "SELECT id, title, workflow_step_id, description, state, created_at, updated_at FROM tasks "
             "WHERE workflow_id = ? AND archived_at IS NULL",
             (workflow_id,),
         )]
@@ -137,306 +137,286 @@ def get_state(db_path, workflow_id):
 
 
 PAGE = """<!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ffffff">
 <title>Kandev Workflow Diagram</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 14px/1.4 -apple-system, system-ui, sans-serif; margin: 0; background: #0b0d10; color: #e6e8eb; }
-  header { padding: 12px 16px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #23262b; }
-  header h1 { font-size: 15px; font-weight: 600; margin: 0; color: #9aa4b2; }
-  select { background: #14171c; color: #e6e8eb; border: 1px solid #2a2e35; border-radius: 6px; padding: 6px 10px; font: inherit; }
-  #status { margin-left: auto; font-size: 12px; color: #6b7280; }
-  #canvas-wrap { overflow: auto; }
-  svg { display: block; }
-  .step-box { fill-opacity: 0.18; stroke-width: 1.5; rx: 8; }
-  .step-label { fill: #e6e8eb; font-size: 12px; font-weight: 600; text-anchor: middle; }
-  .edge-forward { fill: none; stroke: #4b5563; stroke-width: 1.5; }
-  .edge-backward { fill: none; stroke: #ef4444; stroke-width: 1.5; stroke-dasharray: 5 4; }
-  .edge-dim { opacity: 0.15; }
-  .edge-highlight { stroke-width: 3; opacity: 1 !important; }
-  .task-marker { cursor: pointer; }
-  .task-marker rect { fill: #1f6feb; stroke: #58a6ff; stroke-width: 1; rx: 10; }
-  .task-marker text { fill: #fff; font-size: 10px; text-anchor: middle; pointer-events: none; }
-  .task-marker.selected rect { fill: #f59e0b; stroke: #fbbf24; }
-  .edge-count-bg { fill: #0b0d10; }
-  .edge-count { fill: #9aa4b2; font-size: 10px; text-anchor: middle; font-weight: 600; }
-  #empty { padding: 40px; color: #6b7280; text-align: center; }
-  #trace-title { font-size: 13px; font-weight: 600; color: #9aa4b2; margin: 0; padding: 14px 16px 0; border-top: 1px solid #23262b; }
-  #trace-placeholder { padding: 16px; color: #6b7280; font-size: 12px; }
-  #trace-wrap { overflow: auto; padding: 4px 0 16px; }
-  .trace-box { fill-opacity: 0.18; stroke-width: 1.5; rx: 6; }
-  .trace-box.backward-hop { stroke: #ef4444; fill: #ef4444; }
-  .trace-label { fill: #e6e8eb; font-size: 11px; font-weight: 600; text-anchor: middle; }
-  .trace-num { fill: #6b7280; font-size: 9px; text-anchor: middle; }
-  .trace-arrow { stroke: #4b5563; stroke-width: 1.5; fill: none; }
-  .trace-arrow.backward-hop { stroke: #ef4444; stroke-dasharray: 4 3; }
-  #legend { display: flex; gap: 20px; align-items: center; padding: 8px 16px; font-size: 12px; color: #9aa4b2; border-bottom: 1px solid #23262b; flex-wrap: wrap; }
-  #legend .item { display: flex; align-items: center; gap: 6px; }
-  #legend svg { width: 28px; height: 10px; flex-shrink: 0; }
+/* Kandev dark-theme values copied from the local app; no runtime dependency. */
+:root { color-scheme:light; --background:oklch(100% 0 0); --foreground:oklch(14.5% 0 0); --card:oklch(100% 0 0);
+  --border:oklch(92.2% 0 0); --muted:oklch(55.6% 0 0); --primary:oklch(51% .23 277);
+  --accent:oklch(68% .18 276); --return:oklch(58% .22 27); --control-border:oklch(80% 0 0);
+  --task-surface:oklch(97% 0 0); --task-border:oklch(86% 0 0); }
+.dark { color-scheme:dark; --background:#181818; --foreground:#d4d4d4; --card:#1f1f1f;
+  --border:#2a2a2a; --muted:#888; --primary:oklch(59% .2 277);
+  --accent:oklch(62% .18 276); --return:oklch(70.4% .191 22.216); --control-border:#444;
+  --task-surface:#272727; --task-border:#414141; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--background); color:var(--foreground); font:14px/1.5 system-ui,sans-serif; }
+button,select { font:inherit; color:inherit; }
+button { cursor:pointer; }
+button:focus-visible,select:focus-visible,a:focus-visible,[tabindex]:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+header { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+h1 { font-size:16px; margin:0; font-weight:600; }
+select { background:var(--card); border:1px solid var(--control-border); border-radius:6px; padding:7px 10px; max-width:100%; }
+#status { margin-left:auto; color:var(--muted); font-size:12px; }
+main { width:min(100%, 1920px); margin:auto; padding:clamp(20px, 3vw, 44px); display:grid; grid-template-columns:minmax(360px, .9fr) minmax(0, 1.6fr); gap:clamp(28px, 4vw, 72px); align-items:start; }
+h2 { margin:0; font-size:18px; font-weight:600; }
+h3 { margin:0; font-size:14px; }
+p { margin:8px 0 0; }
+.subtle,time { color:var(--muted); font-size:12px; }
+.section-head { margin-bottom:24px; }
+#workflow-summary { font-variant-numeric:tabular-nums; }
+#workflow-steps { list-style:none; padding:0 0 0 28px; margin:0; }
+.step { position:relative; padding-bottom:24px; }
+.step:not(:last-child)::before { content:''; position:absolute; top:22px; bottom:-22px; left:-19px; border-left:1px solid #555; }
+.step::after { content:''; position:absolute; left:-23px; top:23px; width:7px; height:7px; border-radius:50%; background:#777; box-shadow:0 0 0 5px var(--background); }
+.step.visited::after { background:var(--accent); }
+.step.current::after { background:var(--accent); box-shadow:0 0 0 4px #34304f; }
+.step-card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+.step.current .step-card { border-color:var(--accent); }
+.step-heading { display:flex; align-items:baseline; gap:12px; justify-content:space-between; }
+.step-heading h3 { overflow-wrap:anywhere; font-size:15px; }
+.count { white-space:nowrap; color:var(--muted); font-size:12px; }
+.current-label { color:#bcb5ff; font-size:12px; margin-top:4px; }
+.tasks { display:grid; gap:6px; margin-top:12px; }
+.task-marker { width:100%; text-align:left; background:var(--task-surface); border:1px solid var(--task-border); border-radius:5px; padding:9px 10px; overflow-wrap:anywhere; font-size:13px; display:flex; align-items:center; gap:8px; }
+.task-marker:hover { filter:brightness(.96); border-color:var(--muted); }
+.dark .task-marker:hover { filter:brightness(1.15); }
+.task-marker.selected { background:color-mix(in srgb, var(--accent) 18%, var(--card)); border-color:var(--accent); }
+.task-marker .task-name { min-width:0; flex:1; }
+.task-state { flex:0 0 auto; border:1px solid #555; border-radius:999px; padding:2px 7px; color:var(--muted); font-size:10px; line-height:1.2; white-space:nowrap; }
+.task-state.running { color:oklch(42% .12 150); border-color:oklch(58% .12 150); background:color-mix(in srgb, oklch(58% .12 150) 15%, var(--card)); }
+.task-state.paused { color:oklch(48% .13 78); border-color:oklch(62% .13 78); background:color-mix(in srgb, oklch(62% .13 78) 18%, var(--card)); }
+.task-state.attention { color:var(--return); border-color:var(--return); background:color-mix(in srgb, var(--return) 15%, var(--card)); }
+.dark .task-state.running { color:#b7f7c3; background:#17351f; }
+.dark .task-state.paused { color:#ffe0a3; background:#3b2c13; }
+.dark .task-state.attention { color:#ffc0c0; background:#451f23; }
+.task-state.done { color:#b8c0c8; border-color:#555; background:#292929; }
+.status-dot { width:8px; height:8px; flex:0 0 8px; border-radius:50%; background:#777; }
+.status-dot.running { background:#42d467; box-shadow:0 0 0 0 #42d46766; animation:live-pulse 1.8s ease-out infinite; }
+.status-dot.paused { background:#e5a52b; }
+.status-dot.attention { background:var(--return); box-shadow:0 0 0 3px #7d292933; }
+@keyframes live-pulse { 70% { box-shadow:0 0 0 7px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .status-dot.running { animation:none; } }
+.routes { margin:12px 0 0; padding:10px 0 0; border-top:1px solid var(--border); list-style:none; font-size:12px; }
+.routes li { display:flex; gap:8px; justify-content:space-between; padding:3px 0; }
+.routes span:first-child { overflow-wrap:anywhere; }
+.routes .return { color:var(--return); }
+#inspection { position:sticky; top:24px; min-width:0; max-height:calc(100vh - 48px); overflow:auto; scrollbar-gutter:stable; }
+#selection-empty { padding:28px; border:1px dashed #444; border-radius:8px; }
+#selection-empty h2 { font-size:17px; }
+#selection-empty p { max-width:48ch; color:var(--muted); }
+#task-panel[hidden],#selection-empty[hidden] { display:none; }
+.inspection-head { display:flex; align-items:start; gap:16px; justify-content:space-between; margin-bottom:20px; }
+#task-title { overflow-wrap:anywhere; margin-top:4px; }
+#details-close { background:var(--card); border:1px solid #555; border-radius:5px; padding:6px 10px; flex-shrink:0; font-size:12px; }
+#details-close:hover { background:#303030; }
+.inspection-body { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(280px,.9fr); gap:clamp(24px, 3vw, 56px); }
+#task-path,#task-details { min-width:0; }
+#task-details { border-left:1px solid var(--border); padding-left:24px; }
+#task-facts { display:grid; gap:12px; margin:16px 0 24px; font-size:13px; }
+dt { color:var(--muted); font-size:12px; }
+dd { margin:2px 0 0; overflow-wrap:anywhere; }
+#task-description { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; }
+#timeline { list-style:none; margin:20px 0 0; padding:0 0 0 24px; }
+.hop { position:relative; padding:0 0 24px 0; overflow-wrap:anywhere; }
+.hop:not(:last-child)::before { content:''; position:absolute; left:-18px; top:12px; bottom:-3px; border-left:1px solid #444; }
+.hop::after { content:''; position:absolute; left:-21px; top:6px; width:7px; height:7px; background:#999; border-radius:50%; box-shadow:0 0 0 4px var(--background); }
+.hop.return::after { background:var(--return); }
+.hop.return strong { color:var(--return); }
+.hop strong { display:block; font-size:13px; font-weight:600; }
+.hop .origin { margin:3px 0; font-size:12px; color:var(--muted); }
+time { display:block; font-size:11px; font-variant-numeric:tabular-nums; }
+#path-summary { margin-top:4px; }
+#empty { margin:12px 0; }
+.skip { position:absolute; left:16px; top:-100px; background:var(--card); padding:10px; z-index:2; }
+.skip:focus { top:8px; }
+@media(max-width:1100px) { main { gap:24px; grid-template-columns:minmax(260px,360px) minmax(0,1fr); }
+  .inspection-body { grid-template-columns:1fr; } #task-details { border-left:0; border-top:1px solid var(--border); padding:20px 0 0; } }
+@media(max-width:720px) { header { padding:14px 16px; gap:10px; } #status { width:100%; margin:0; }
+  main { display:flex; flex-direction:column; padding:20px 16px; gap:24px; } #workflow,#inspection { width:100%; }
+  #inspection { position:static; max-height:none; overflow:visible; } .inspection-head { scroll-margin-top:16px; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Kandev Workflow Diagram</h1>
-  <select id="workflow-picker"></select>
-  <span id="status">connecting...</span>
-</header>
-<div id="legend">
-  <span class="item"><svg><line x1="0" y1="5" x2="28" y2="5" stroke="#4b5563" stroke-width="2"/></svg> forward move (bows right)</span>
-  <span class="item"><svg><line x1="0" y1="5" x2="28" y2="5" stroke="#ef4444" stroke-width="2" stroke-dasharray="5 4"/></svg> rejected / sent back (bows left)</span>
-  <span class="item">×N on a line = how many times that exact move has happened, across every task</span>
-  <span class="item">click a task's blue label to trace its own path (hover a line for the full detail)</span>
-</div>
-<div id="canvas-wrap"><svg id="canvas" width="100%" height="500"></svg></div>
-<div id="empty" style="display:none">No transition history yet for this workflow — steps will appear once tasks start moving.</div>
-<h2 id="trace-title">Task path</h2>
-<div id="trace-placeholder">Click a task above to see its actual path here, step by step, in the order it really happened.</div>
-<div id="trace-wrap"><svg id="trace-canvas" width="100%" height="1"></svg></div>
-
+<a class="skip" href="#workflow">Skip to workflow</a>
+<header><h1>Workflow</h1><select id="workflow-picker" aria-label="Workflow"></select><span id="status">Connecting…</span></header>
+<main>
+<section id="workflow" aria-labelledby="workflow-title">
+  <div class="section-head"><h2 id="workflow-title">Workflow steps</h2><p id="workflow-summary" class="subtle"></p><p class="subtle">Top to bottom shows step order. Select a task to see its recorded moves.</p></div>
+  <ol id="workflow-steps"></ol><p id="empty" class="subtle" hidden>No recorded moves yet.</p>
+</section>
+<section id="inspection" aria-label="Selected task">
+  <div id="selection-empty"><h2>Follow a task</h2><p>Select a task under any step. Its moves will appear here in time order, with returns clearly marked.</p></div>
+  <div id="task-panel" hidden>
+    <div class="inspection-head" id="inspection-head" tabindex="-1"><div><span class="subtle">Selected task</span><h2 id="task-title"></h2></div><button id="details-close" type="button">Clear</button></div>
+    <div class="inspection-body">
+      <section id="task-path" aria-labelledby="trace-title"><h3 id="trace-title">Task path</h3><p id="path-summary" class="subtle"></p><ol id="timeline"></ol></section>
+      <section id="task-details" aria-labelledby="details-title"><h3 id="details-title">Task details</h3><dl id="task-facts"></dl></section>
+    </div>
+  </div>
+</section>
+</main>
 <script>
 const POLL_MS = __POLL_MS__;
-let selectedWorkflow = null;
-let selectedTask = null;
-let lastState = null;
-
-const NODE_W = 190, NODE_H = 50, NODE_GAP = 70, COL_X = 260;
-
-// All step/workflow/task names come from Kandev's DB (user-entered content) and are
-// interpolated into innerHTML/SVG below - escape before every interpolation so a task
-// titled e.g. "<img src=x onerror=...>" can't execute in the viewer's browser.
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let selectedWorkflow = null, selectedTask = null, lastState = null;
+let lastTaskSteps = null;
+let audioContext = null;
+function unlockAudio() {
+  if (!audioContext) {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return;
+    audioContext = new AudioCtor();
+  }
+  if (audioContext.state === 'suspended') audioContext.resume();
 }
-
-async function loadWorkflows() {
-  const r = await fetch('/api/workflows');
-  const workflows = await r.json();
-  const picker = document.getElementById('workflow-picker');
-  picker.innerHTML = workflows.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('');
-  picker.onchange = () => { selectedWorkflow = picker.value; selectedTask = null; poll(); };
-  if (workflows.length) { selectedWorkflow = workflows[0].id; picker.value = selectedWorkflow; }
+function playStagePing() {
+  if (!audioContext || audioContext.state !== 'running') return;
+  const now = audioContext.currentTime;
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  oscillator.type = 'sine';
+  oscillator.frequency.setValueAtTime(880, now);
+  oscillator.frequency.exponentialRampToValueAtTime(1320, now + 0.09);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(0.035, now + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+  oscillator.connect(gain).connect(audioContext.destination);
+  oscillator.start(now);
+  oscillator.stop(now + 0.17);
 }
-
-function stepY(index) { return 40 + index * (NODE_H + NODE_GAP); }
-
-function edgeKey(e) { return e.from + '->' + e.to; }
-
+document.addEventListener('pointerdown', unlockAudio, {passive:true});
+document.addEventListener('keydown', unlockAudio, {passive:true});
+function preferredTheme() {
+  const saved = localStorage.getItem('theme');
+  return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
+}
+function resolvedTheme() {
+  const preference = preferredTheme();
+  return preference === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : preference;
+}
+function applyTheme() {
+  const theme = resolvedTheme();
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.documentElement.classList.toggle('light', theme === 'light');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#181818' : '#ffffff');
+}
+applyTheme();
+window.addEventListener('storage', event => { if (event.key === 'theme') applyTheme(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (preferredTheme() === 'system') applyTheme(); });
+// Escape all database text before inserting markup. Descriptions remain plain text.
+function esc(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function date(value) { if (!value) return 'Time not recorded'; const d = new Date(value); return Number.isNaN(d.getTime()) ? value : d.toLocaleString(); }
+function timestamp(value) { return `<time>${esc(date(value))}</time>`; }
+function stateInfo(value) {
+  const raw = String(value || 'UNKNOWN').toUpperCase();
+  if (/PAUS|WAIT|HOLD/.test(raw)) return {label: raw, tone:'paused'};
+  if (/ATTENTION|FEEDBACK|REVIEW|BLOCK|ERROR|FAIL/.test(raw)) return {label: raw, tone:'attention'};
+  if (/DONE|COMPLETE|ARCHIV/.test(raw)) return {label: raw, tone:'done'};
+  if (/RUN|PROGRESS|ACTIVE|IN_PROGRESS/.test(raw)) return {label: raw, tone:'running'};
+  return {label: raw, tone:'unknown'};
+}
 function render(state) {
-  const svg = document.getElementById('canvas');
-  const empty = document.getElementById('empty');
-  if (!state) {
-    svg.innerHTML = '';
-    empty.style.display = 'block';
-    return;
-  }
-  empty.style.display = 'none';
-
-  const steps = state.steps;
-  const yByStep = {}, idxByStep = {};
-  steps.forEach((s, i) => { yByStep[s.id] = stepY(i); idxByStep[s.id] = i; });
-  const height = Math.max(500, stepY(steps.length) + 60);
-
-  svg.setAttribute('width', 900);
-  svg.setAttribute('height', height);
-
-  let defs = `<defs>
-    <marker id="arrow-fwd" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4b5563"/></marker>
-    <marker id="arrow-back" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ef4444"/></marker>
-  </defs>`;
-
-  // "Bridge" curve: leaves the source going straight left/right, travels at a constant
-  // offset from the column, then drops straight into the target. Unlike a single
-  // quadratic arc, this stays clear of every node it passes over instead of dipping
-  // close to the column near its endpoints - that dipping was what made long edges
-  // look like they crossed through step boxes.
-  function bridgePath(anchorX, fy, ty, h) {
-    return `M${anchorX},${fy} C${anchorX + h},${fy} ${anchorX + h},${ty} ${anchorX},${ty}`;
-  }
-
-  // stack multiple edges sharing the same direction+span at increasing offset, and
-  // guarantee enough clearance past every node the edge spans (not just its own length)
-  const spanCounts = {};
-  function edgeOffset(fromId, toId, backward) {
-    const spanNodes = Math.abs(idxByStep[toId] - idxByStep[fromId]);
-    const key = (backward ? 'b' : 'f') + ':' + Math.min(idxByStep[fromId], idxByStep[toId]) + ':' + Math.max(idxByStep[fromId], idxByStep[toId]);
-    const n = spanCounts[key] = (spanCounts[key] || 0);
-    spanCounts[key] = n + 1;
-    const base = NODE_W / 2 + 40 + spanNodes * 10 + n * 36;
-    return backward ? -base : base;
-  }
-
-  let edgesSvg = '';
-  state.edges.forEach(e => {
-    const fy = yByStep[e.from], ty = yByStep[e.to];
-    const h = edgeOffset(e.from, e.to, e.backward);
-    const anchorX = COL_X + (e.backward ? -NODE_W / 2 : NODE_W / 2);
-    const midY = (fy + ty) / 2;
-    const cls = e.backward ? 'edge-backward' : 'edge-forward';
-    const marker = e.backward ? 'arrow-back' : 'arrow-fwd';
-    const dim = selectedTask ? ' edge-dim' : '';
-    const fromName = state.steps[idxByStep[e.from]].name, toName = state.steps[idxByStep[e.to]].name;
-    const times = e.count === 1 ? 'once' : `${e.count} times`;
-    edgesSvg += `<path class="${cls}${dim}" d="${bridgePath(anchorX, fy, ty, h)}" marker-end="url(#${marker})"><title>${esc(fromName)} → ${esc(toName)}: ${times}</title></path>`;
-    if (e.count > 1) {
-      edgesSvg += `<rect class="edge-count-bg" x="${anchorX + h - 14}" y="${midY - 7}" width="28" height="14" rx="3"/>` +
-        `<text class="edge-count" x="${anchorX + h}" y="${midY + 4}">×${e.count}</text>`;
-    }
+  if (!state) return;
+  const focusId = document.activeElement?.dataset.task;
+  if (selectedTask && !state.tasks.some(t => t.id === selectedTask)) selectedTask = null;
+  const task = state.tasks.find(t => t.id === selectedTask);
+  const trail = task ? state.trails[task.id] || [] : [];
+  const names = new Map(state.steps.map(s => [s.id,s.name]));
+  const visited = new Set(trail.flatMap(t => [t.from,t.to]));
+  const tasksByStep = new Map(state.steps.map(s => [s.id,[]]));
+  state.tasks.forEach(t => tasksByStep.get(t.workflow_step_id)?.push(t));
+  // Collapse repeated routes in the overview only. The timeline retains every move.
+  const routes = new Map();
+  trail.forEach(t => {
+    const key = JSON.stringify([t.from,t.to]);
+    if (!routes.has(key)) routes.set(key,{...t,count:0});
+    routes.get(key).count++;
   });
-
-  // per-task trail highlight, drawn on top
-  let trailSvg = '';
-  if (selectedTask && state.trails[selectedTask]) {
-    const trail = state.trails[selectedTask];
-    const localSpan = {};
-    trail.forEach((t, idx) => {
-      const fy = yByStep[t.from], ty = yByStep[t.to];
-      const spanNodes = Math.abs(idxByStep[t.to] - idxByStep[t.from]);
-      const key = (t.backward ? 'b' : 'f') + ':' + Math.min(idxByStep[t.from], idxByStep[t.to]) + ':' + Math.max(idxByStep[t.from], idxByStep[t.to]);
-      const n = localSpan[key] = (localSpan[key] || 0);
-      localSpan[key] = n + 1;
-      const base = NODE_W / 2 + 40 + spanNodes * 10 + n * 36;
-      const h = t.backward ? -base : base;
-      const anchorX = COL_X + (t.backward ? -NODE_W / 2 : NODE_W / 2);
-      const cls = t.backward ? 'edge-backward' : 'edge-forward';
-      const stepLabel = `${idx + 1}. ${esc(state.steps[idxByStep[t.from]].name)} → ${esc(state.steps[idxByStep[t.to]].name)}`;
-      trailSvg += `<path class="${cls} edge-highlight" d="${bridgePath(anchorX, fy, ty, h)}" marker-end="url(#${t.backward ? 'arrow-back' : 'arrow-fwd'})"><title>${stepLabel}</title></path>`;
-    });
-  }
-
-  let nodesSvg = '';
-  steps.forEach((s, i) => {
-    const y = stepY(i);
-    nodesSvg += `<rect class="step-box" x="${COL_X - NODE_W/2}" y="${y - NODE_H/2}" width="${NODE_W}" height="${NODE_H}" style="fill:#3b82f6;stroke:#3b82f6"/>`;
-    nodesSvg += `<text class="step-label" x="${COL_X}" y="${y + 4}">${esc(s.name)}</text>`;
-  });
-
-  // stack task markers below each node, in the vertical gap before the next one -
-  // clear of both edge lanes, which bow out sideways at the node's own y, not below it
-  const stackCount = {};
-  let tasksSvg = '';
-  state.tasks.forEach(t => {
-    const y = yByStep[t.workflow_step_id];
-    if (y === undefined) return;
-    const n = stackCount[t.workflow_step_id] = (stackCount[t.workflow_step_id] || 0);
-    stackCount[t.workflow_step_id] = n + 1;
-    const my = y + NODE_H/2 + 10 + n * 24;
-    const label = t.title.length > 22 ? t.title.slice(0, 21) + '…' : t.title;
-    const sel = t.id === selectedTask ? ' selected' : '';
-    tasksSvg += `<g class="task-marker${sel}" data-task="${esc(t.id)}" transform="translate(${COL_X - 70},${my})">
-      <rect width="140" height="20"/>
-      <text x="70" y="14">${esc(label)}</text>
-      <title>${esc(t.title)}</title>
-    </g>`;
-  });
-
-  svg.innerHTML = defs + edgesSvg + trailSvg + nodesSvg + tasksSvg;
-
-  svg.querySelectorAll('.task-marker').forEach(el => {
-    el.onclick = () => {
-      const id = el.getAttribute('data-task');
-      selectedTask = selectedTask === id ? null : id;
+  document.getElementById('workflow-summary').textContent = `${state.steps.length} steps · ${state.tasks.length} active tasks`;
+  document.getElementById('empty').hidden = state.edges.length > 0;
+  document.getElementById('workflow-steps').innerHTML = state.steps.map(s => {
+    const tasks = tasksByStep.get(s.id);
+    const outgoing = [...routes.values()].filter(t => t.from === s.id);
+    return `<li class="step${visited.has(s.id) ? ' visited' : ''}${task?.workflow_step_id === s.id ? ' current' : ''}"><div class="step-card">
+      <div class="step-heading"><h3>${esc(s.name)}</h3><span class="count">${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}</span></div>
+      ${task?.workflow_step_id === s.id ? '<p class="current-label">Selected task is here</p>' : ''}
+      ${tasks.length ? `<div class="tasks">${tasks.map(t => { const state = stateInfo(t.state); return `<button type="button" class="task-marker${t.id === selectedTask ? ' selected' : ''}" data-task="${esc(t.id)}" aria-pressed="${t.id === selectedTask}"><span class="status-dot ${state.tone}" aria-hidden="true"></span><span class="task-name">${esc(t.title)}</span><span class="task-state ${state.tone}">${esc(state.label)}</span></button>`; }).join('')}</div>` : ''}
+      ${outgoing.length ? `<ul class="routes" aria-label="Selected task moves from this step">${outgoing.map(t => `<li class="${t.backward ? 'return' : ''}"><span>${t.backward ? '↶ Returned to' : '→ Moved to'} ${esc(names.get(t.to) || 'Unknown step')}</span><span class="count">${t.count}×</span></li>`).join('')}</ul>` : ''}
+    </div></li>`;
+  }).join('');
+  document.querySelectorAll('.task-marker').forEach(button => {
+    button.onclick = () => {
+      const previous = selectedTask;
+      selectedTask = previous === button.dataset.task ? null : button.dataset.task;
       render(lastState);
-    };
-  });
-
-  renderTrace(state);
-}
-
-// The "tree" view: one task's own history, unrolled into a straight left-to-right,
-// wrapping sequence of blocks - each revisit of a step is its own block, connected
-// next-to-next in the order it actually happened. No curves to decode: a reject loop
-// is just literal repeated blocks going along the sequence.
-const TRACE_BOX_W = 150, TRACE_BOX_H = 40, TRACE_GAP_X = 46, TRACE_GAP_Y = 50, TRACE_COLS = 6;
-
-function renderTrace(state) {
-  const wrap = document.getElementById('trace-wrap');
-  const placeholder = document.getElementById('trace-placeholder');
-  const svg = document.getElementById('trace-canvas');
-
-  if (!selectedTask || !state || !state.trails[selectedTask]) {
-    wrap.style.display = 'none';
-    placeholder.style.display = 'block';
-    return;
-  }
-  const trail = state.trails[selectedTask];
-  if (trail.length === 0) {
-    wrap.style.display = 'none';
-    placeholder.textContent = 'This task has no recorded moves yet.';
-    placeholder.style.display = 'block';
-    return;
-  }
-  placeholder.style.display = 'none';
-  wrap.style.display = 'block';
-
-  const nameById = {};
-  state.steps.forEach(s => nameById[s.id] = s.name);
-
-  // path[0] = first step visited, path[i+1] = destination of hop i
-  const path = [trail[0].from, ...trail.map(t => t.to)];
-
-  function pos(i) {
-    const col = i % TRACE_COLS, row = Math.floor(i / TRACE_COLS);
-    return { x: 20 + col * (TRACE_BOX_W + TRACE_GAP_X), y: 20 + row * (TRACE_BOX_H + TRACE_GAP_Y), col, row };
-  }
-
-  const rows = Math.ceil(path.length / TRACE_COLS);
-  const width = Math.min(path.length, TRACE_COLS) * (TRACE_BOX_W + TRACE_GAP_X) + 40;
-  const height = rows * (TRACE_BOX_H + TRACE_GAP_Y) + 20;
-  svg.setAttribute('width', width);
-  svg.setAttribute('height', height);
-
-  let defs = `<defs><marker id="arrow-trace" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-    <path d="M0,0 L8,4 L0,8 Z" fill="#4b5563"/></marker>
-    <marker id="arrow-trace-back" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-    <path d="M0,0 L8,4 L0,8 Z" fill="#ef4444"/></marker></defs>`;
-
-  let arrowsSvg = '', boxesSvg = '';
-  path.forEach((stepId, i) => {
-    const p = pos(i);
-    const backward = i > 0 && trail[i - 1].backward;
-    const cls = backward ? ' backward-hop' : '';
-    boxesSvg += `<rect class="trace-box${cls}" x="${p.x}" y="${p.y}" width="${TRACE_BOX_W}" height="${TRACE_BOX_H}" style="${backward ? '' : 'fill:#3b82f6;stroke:#3b82f6'}"/>`;
-    boxesSvg += `<text class="trace-label" x="${p.x + TRACE_BOX_W/2}" y="${p.y + TRACE_BOX_H/2 + 4}">${esc(nameById[stepId] || '?')}</text>`;
-    boxesSvg += `<text class="trace-num" x="${p.x + TRACE_BOX_W/2}" y="${p.y - 6}">${i + 1}</text>`;
-
-    if (i > 0) {
-      const prev = pos(i - 1);
-      const hopCls = backward ? ' backward-hop' : '';
-      const marker = backward ? 'arrow-trace-back' : 'arrow-trace';
-      if (p.row === prev.row) {
-        const y = prev.y + TRACE_BOX_H / 2;
-        arrowsSvg += `<path class="trace-arrow${hopCls}" d="M${prev.x + TRACE_BOX_W},${y} L${p.x},${y}" marker-end="url(#${marker})"/>`;
-      } else {
-        // wrap to next row: down from end of prev row, across, down into the new box
-        const x1 = prev.x + TRACE_BOX_W / 2, y1 = prev.y + TRACE_BOX_H;
-        const y2 = p.y - 14;
-        const x3 = p.x + TRACE_BOX_W / 2;
-        arrowsSvg += `<path class="trace-arrow${hopCls}" d="M${x1},${y1} L${x1},${y2} L${x3},${y2} L${x3},${p.y}" marker-end="url(#${marker})"/>`;
+      if (selectedTask !== previous) document.getElementById('inspection').scrollTop = 0;
+      if (selectedTask && matchMedia('(max-width:720px)').matches) {
+        document.getElementById('inspection-head').focus({preventScroll:true});
+        document.getElementById('inspection-head').scrollIntoView({block:'start'});
       }
-    }
+    };
+    if (button.dataset.task === focusId) button.focus({preventScroll:true});
   });
-
-  svg.innerHTML = defs + arrowsSvg + boxesSvg;
+  document.getElementById('task-panel').hidden = !task;
+  document.getElementById('selection-empty').hidden = !!task;
+  if (!task) return;
+  document.getElementById('task-title').textContent = task.title;
+  document.getElementById('path-summary').textContent = `${trail.length} moves · ${trail.filter(t => t.backward).length} returns · newest first`;
+  // Keep the current location at the top, then walk backward through recorded moves.
+  const current = `<li class="hop current-hop"><strong>Current step: ${esc(names.get(task.workflow_step_id) || 'Unknown step')}</strong>${!trail.length ? '<p class="origin">No recorded moves yet.</p>' : ''}</li>`;
+  const newestFirst = [...trail].reverse();
+  document.getElementById('timeline').innerHTML = current + newestFirst.map((t,i) => `<li class="hop${t.backward ? ' return' : ''}"><strong>${i+1}. ${t.backward ? 'Returned to' : 'Moved to'} ${esc(names.get(t.to) || 'Unknown step')}</strong><p class="origin">From ${esc(names.get(t.from) || 'Unknown step')}</p>${timestamp(t.occurred_at)}</li>`).join('');
+  const taskState = stateInfo(task.state);
+  const facts = [['Current step',names.get(task.workflow_step_id) || 'Unknown step'],['State',taskState.label],['Last move',date(trail.at(-1)?.occurred_at)],['Created',date(task.created_at)],['Updated',date(task.updated_at)]];
+  document.getElementById('task-facts').innerHTML = facts.map(([key,value]) => `<div><dt>${esc(key)}</dt><dd>${esc(value)}</dd></div>`).join('');
 }
-
+document.getElementById('details-close').onclick = () => {
+  const id = selectedTask;
+  selectedTask = null;
+  render(lastState);
+  [...document.querySelectorAll('.task-marker')].find(b => b.dataset.task === id)?.focus();
+};
+document.addEventListener('keydown',event => { if (event.key === 'Escape' && selectedTask) document.getElementById('details-close').click(); });
 async function poll() {
   if (!selectedWorkflow) return;
+  const workflow = selectedWorkflow;
   const status = document.getElementById('status');
   try {
-    const r = await fetch('/api/state?workflow_id=' + encodeURIComponent(selectedWorkflow));
-    if (!r.ok) { status.textContent = 'error: ' + (await r.text()); return; }
-    const state = await r.json();
-    lastState = state;
-    render(state);
-    status.textContent = 'live · updated ' + new Date().toLocaleTimeString();
-  } catch (e) {
-    status.textContent = 'connection error: ' + e;
-  }
+    const response = await fetch('/api/state?workflow_id=' + encodeURIComponent(workflow));
+    if (!response.ok) throw new Error(await response.text());
+    const state = await response.json();
+    if (workflow !== selectedWorkflow) return;
+    // Preserve focus, selection, and reading position when a poll has no data changes.
+    const nextTaskSteps = new Map(state.tasks.map(task => [task.id, task.workflow_step_id]));
+    if (lastTaskSteps) {
+      for (const [taskId, stepId] of nextTaskSteps) {
+        if (lastTaskSteps.has(taskId) && lastTaskSteps.get(taskId) !== stepId) playStagePing();
+      }
+    }
+    lastTaskSteps = nextTaskSteps;
+    if (JSON.stringify(state) !== JSON.stringify(lastState)) { lastState = state; render(state); }
+    status.textContent = 'Live · updated ' + new Date().toLocaleTimeString();
+  } catch(error) { if (workflow === selectedWorkflow) status.textContent = 'Unable to refresh. Retrying… ' + error.message; }
 }
-
-loadWorkflows().then(() => { poll(); setInterval(poll, POLL_MS); });
+async function loadWorkflows() {
+  try {
+    const response = await fetch('/api/workflows');
+    if (!response.ok) throw new Error(await response.text());
+    const workflows = await response.json();
+    const picker = document.getElementById('workflow-picker');
+    picker.innerHTML = workflows.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('');
+    picker.onchange = () => { selectedWorkflow = picker.value; selectedTask = null; lastState = null; lastTaskSteps = null; document.getElementById('workflow-steps').replaceChildren(); document.getElementById('task-panel').hidden = true; document.getElementById('selection-empty').hidden = false; poll(); };
+    if (!workflows.length) { document.getElementById('status').textContent = 'No workflows available'; return; }
+    selectedWorkflow = picker.value;
+    await poll();
+    setInterval(poll,POLL_MS);
+  } catch(error) { document.getElementById('status').textContent = 'Unable to load workflows. Reload to retry. ' + error.message; }
+}
+loadWorkflows();
 </script>
 </body>
 </html>

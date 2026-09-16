@@ -1,5 +1,30 @@
 # Feature: Live Workflow Diagram
 
+## Current approved presentation (2026-09-09)
+
+The approved redesign replaces the overlapping SVG arcs and wrapping task tree:
+
+- A vertical workflow sequence shows step order, full step names, active-task counts,
+  and selectable task buttons. Its connecting line represents order, not observed moves.
+- Selecting a task reveals its recorded routes under their source steps, with explicit
+  destination names and return labels. Repeated routes are counted once in this overview.
+- A chronological Task path timeline retains every individual move, its source,
+  destination, and timestamp. The current step is always at the top, followed by
+  newest moves first. Returns are labeled and colored red; no wrapping arrows.
+- Task details sit alongside the timeline on wide screens, with description, state,
+  current step, and timestamps. Narrow screens stack the sections and bring the selected
+  task into view. Clear or Escape dismisses selection.
+- The centered page follows Kandev's `localStorage.theme` preference (`light`, `dark`, or
+  `system`) and its `prefers-color-scheme` resolution. Native HTML/CSS renders the sequence
+  and timeline; vanilla JavaScript refreshes data. There are no external assets or libraries.
+- When polling detects an existing active task has changed workflow step, the page plays a
+  short, soft sine-wave ping. The initial load is silent, and browser audio is unlocked by
+  the first user interaction so autoplay policy is respected.
+
+These decisions supersede the original layout and trail-rendering descriptions below.
+The tool remains one stdlib-only Python file with read-only database access. Task data
+also includes `description`, `state`, `created_at`, and `updated_at`.
+
 ## Why
 
 Right now the only way to see how tasks actually move through a Kandev workflow — which
