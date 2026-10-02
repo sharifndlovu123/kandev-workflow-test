@@ -122,3 +122,23 @@ than leaving it as an internal-only proof:
   export/install experiment above. Anyone installing it gets a workspace-wide
   instance, not bound to one task, even though it only reads `tasks`/
   `workflows` (same scope as ours, just a different instance type).
+
+## Journey — tried, then explicitly dropped (2026-10-02)
+
+Built a "Journey" section (oldest-to-current pill strip, reusing the
+Workflow path pill style) on task 3, published and verified correctly
+(pill order matched the raw transitions, colours matched the existing
+forward/backward convention). Direct feedback right after: skip it —
+the existing Chronological history already shows the route and order
+clearly enough; Journey added a fourth section without enough distinct
+value to justify it.
+
+Rolled back cleanly via Kandev's own release mechanism (Releases and
+permissions → select the prior release → Roll back release) rather than
+asking the agent to re-edit files — exact, no drift, uses the retained-
+prior-release feature the platform already provides for this. Canvas is
+back to the 3-section design (Workflow path, Visits per step,
+Chronological history), confirmed live. Updated screenshot reflects this
+(also has richer history now: 4/4 visits from the build+verify bounces).
+
+**Decision: Journey is out of scope for this canvas, not just deferred.**
