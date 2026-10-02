@@ -97,3 +97,28 @@ layout (sidebar/side-panes collapsed).
 `docs/screenshots/canvas/step-history-task2.png` — task 2, same design,
 independently correct data: "In Progress: 2 visits", "Review: 2 visits ·
 CURRENT". Demonstrates the reference-copy result on a second task.
+
+## Prepped for sharing (2026-10-02)
+
+Per Carlos's original pitch ("build yours and share with others" + the
+upcoming marketplace), prepped the v2 design canvas for real sharing rather
+than leaving it as an internal-only proof:
+
+- `Share canvas` on task 3's canvas, filled in proper package details:
+  Author "Sharif Ndlovu" (was the generic "Kandev task agent" default),
+  License MIT, Repository URL pointing at this repo, description kept
+  accurate to what it actually does.
+- Downloaded the installable bundle: `docs/canvas-bundle/step-history-1.0.0.tar.gz`
+  (7 files, 6,821 bytes, checksummed). Verified the manifest reflects the
+  details above and declares nothing beyond `api_read: tasks, workflows`.
+- The "Copy registry example" snippet is a template with placeholder repo/
+  preview-image values (`your-org/my-canvas`, `cdn.example.com`) — would need
+  real values (and an actual preview image hosted somewhere) before it's
+  usable in a real registry submission. Not done yet — that's the actual
+  "submit to the marketplace" step, a separate decision from prepping the
+  bundle itself.
+- Reminder: installing this bundle anywhere (via Settings → Plugins →
+  Canvases) always creates a *workspace* canvas, never task-scoped — see the
+  export/install experiment above. Anyone installing it gets a workspace-wide
+  instance, not bound to one task, even though it only reads `tasks`/
+  `workflows` (same scope as ours, just a different instance type).
